@@ -29,8 +29,8 @@ Pré-requisito: Docker e Docker Compose instalados, e um subdomínio apontando p
 (ex.: `financas.meurumodiario.com.br`, registro **A**).
 
 ```bash
-git clone https://github.com/ygorlima12/meurumo-financas.git
-cd meurumo-financas
+git clone https://github.com/ygorlima12/financaspessoais.git
+cd financaspessoais
 cp .env.example .env
 # edite o .env: DOMAIN, POSTGRES_PASSWORD (openssl rand -hex 24), JWT_SECRET (openssl rand -hex 32)
 nano .env
