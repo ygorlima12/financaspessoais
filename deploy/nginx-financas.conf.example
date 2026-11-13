@@ -1,0 +1,36 @@
+# Bloco para um Nginx já existente. Troque DOMINIO pelo seu domínio.
+# O "resolver" + variável fazem o Nginx subir mesmo se o app estiver parado
+# (sem isso, um app fora do ar impediria o Nginx inteiro de iniciar).
+
+server {
+    listen 80;
+    server_name DOMINIO;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name DOMINIO;
+
+    ssl_certificate     /etc/letsencrypt/live/DOMINIO/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/DOMINIO/privkey.pem;
+
+    client_max_body_size 1m;
+
+    location / {
+        resolver 127.0.0.11 valid=30s ipv6=off;
+        set $financas_upstream http://financas-app:3000;
+        proxy_pass $financas_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

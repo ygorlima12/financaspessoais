@@ -66,6 +66,11 @@ server {
 
 (depois `certbot --nginx -d financas.seudominio.com.br`).
 
+**C) A VPS já tem um Nginx rodando em container** (outro projeto ocupando 80/443): no `.env`, ative
+`COMPOSE_FILE=docker-compose.yml:docker-compose.proxy.yml` e `PROXY_NETWORK=<rede do nginx>`.
+O app entra na rede desse Nginx como `financas-app:3000`, com limite de memória. Use
+`deploy/nginx-financas.conf.example` como bloco do Nginx (ele não derruba o Nginx se o app estiver parado).
+
 Abra o domínio no navegador: a **primeira conta criada** é a sua. Depois disso o cadastro fica fechado
 (`ALLOW_SIGNUP=false`). Para liberar outra pessoa, mude para `true`, `docker compose up -d`, crie a conta e volte para `false`.
 

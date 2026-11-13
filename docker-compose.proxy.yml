@@ -1,0 +1,32 @@
+# Use quando a VPS já tem um Nginx rodando em container (ex.: outro projeto ocupando 80/443).
+# Coloca o app na rede desse Nginx com o nome "financas-app" e limita memória para não
+# atrapalhar os outros serviços. Ative no .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.proxy.yml
+#   PROXY_NETWORK=<rede do nginx>   (veja com: docker inspect <nginx> --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}')
+services:
+  app:
+    networks:
+      default:
+      proxy:
+        aliases: [financas-app]
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
+  db:
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
+  backup:
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?defina PROXY_NETWORK no .env}
