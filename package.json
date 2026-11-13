@@ -1,0 +1,11 @@
+{
+  "name": "meurumo-financas",
+  "private": true,
+  "scripts": {
+    "install:all": "npm --prefix server ci && npm --prefix web ci",
+    "dev:server": "npm --prefix server run dev",
+    "dev:web": "npm --prefix web run dev",
+    "build": "npm --prefix web run build && npm --prefix server run build",
+    "test": "npm --prefix server test"
+  }
+}
