@@ -7,6 +7,7 @@ import { Icons, Spinner } from './components/ui'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import Transactions from './pages/Transactions'
+import Bills from './pages/Bills'
 import Inbox from './pages/Inbox'
 import Growth from './pages/Growth'
 import Settings from './pages/Settings'
@@ -22,7 +23,8 @@ function TabBar() {
     <nav className="tabbar">
       <div className="brand"><div className="brand-logo">↗</div>Meu Rumo</div>
       <NavLink to="/" end>{Icons.home}<span>Início</span></NavLink>
-      <NavLink to="/lancamentos">{Icons.list}<span>Lançamentos</span></NavLink>
+      <NavLink to="/contas">{Icons.bills}<span>Contas</span></NavLink>
+      <NavLink to="/lancamentos">{Icons.list}<span>Extrato</span></NavLink>
       <NavLink to="/entrada">{Icons.inbox}<span>Caixa</span>{n > 0 && <span className="badge">{n > 99 ? '99+' : n}</span>}</NavLink>
       <NavLink to="/crescer">{Icons.growth}<span>Crescer</span></NavLink>
       <NavLink to="/ajustes">{Icons.settings}<span>Ajustes</span></NavLink>
@@ -52,6 +54,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/lancamentos" element={<Transactions />} />
+              <Route path="/contas" element={<Bills />} />
               <Route path="/entrada" element={<Inbox />} />
               <Route path="/crescer" element={<Growth />} />
               <Route path="/ajustes" element={<Settings onLogout={() => setUser(null)} />} />

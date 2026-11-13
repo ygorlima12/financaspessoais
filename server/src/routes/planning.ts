@@ -6,6 +6,7 @@ import {
   accountsWithBalance, getSettings, goalsWithProgress, investmentsWithBalance,
   monthlyFlow, netWorthHistory, reserveSummary,
 } from '../lib/finance.js';
+import { billsForMonth, billsAnalysis } from '../lib/bills.js';
 
 const goalBody = z.object({
   name: z.string().trim().min(1).max(60),
@@ -75,7 +76,7 @@ export default async function planningRoutes(app: FastifyInstance) {
   app.get('/api/dashboard', async (req) => {
     const uid = req.userId;
     const { start, end, month } = monthRange();
-    const [accounts, investments, history, flow, reserve, goals, byCategory, pending, budgets] = await Promise.all([
+    const [accounts, investments, history, flow, reserve, goals, byCategory, pending, budgets, bills, billsInfo] = await Promise.all([
       accountsWithBalance(uid, true),
       investmentsWithBalance(uid, true),
       netWorthHistory(uid, 12),
@@ -96,12 +97,15 @@ export default async function planningRoutes(app: FastifyInstance) {
           and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
         where c.user_id = ${uid} and c.monthly_budget_cents is not null and not c.archived
         group by c.id order by coalesce(sum(t.amount_cents), 0)::float / c.monthly_budget_cents desc`,
+      billsForMonth(uid, month),
+      billsAnalysis(uid, month),
     ]);
     const [uncategorized] = await sql`
       select coalesce(sum(amount_cents), 0) as total from transactions
       where user_id = ${uid} and kind = 'despesa' and category_id is null
         and occurred_at >= ${start}::date and occurred_at < ${end}::date`;
 
+    const slim = (b: any) => ({ id: b.id, name: b.name, amountCents: b.amountCents, dueDate: b.dueDate, icon: b.categoryIcon, status: b.status, daysLeft: b.daysLeft });
     const accountsTotal = accounts.reduce((s, a) => s + a.balanceCents, 0);
     const investmentsTotal = investments.reduce((s, i) => s + i.balanceCents, 0);
     const current = flow[flow.length - 1] ?? { incomeCents: 0, expenseCents: 0, investedCents: 0 };
@@ -128,6 +132,17 @@ export default async function planningRoutes(app: FastifyInstance) {
       expensesByCategory: categories,
       budgets,
       pendingCaptures: pending[0].count,
+      bills: {
+        total: bills.length,
+        paid: bills.filter((b) => b.status === 'paga').length,
+        late: bills.filter((b) => b.status === 'atrasada').map(slim),
+        upcoming: bills.filter((b) => b.status === 'vence_hoje' || b.status === 'em_breve').slice(0, 3).map(slim),
+        openCents: bills.filter((b) => b.status !== 'paga').reduce((s, b) => s + b.amountCents, 0),
+        fixedRatio: billsInfo.fixedRatio,
+        limitPct: billsInfo.limitPct,
+        overLimit: billsInfo.overLimit,
+        incomeCents: billsInfo.income.cents,
+      },
     };
   });
 }

@@ -9,6 +9,11 @@ reserva de emergência e metas — com **captura automática das notificações 
   O sistema aprende a categoria de cada estabelecimento e a conta de cada app.
 - **Crescer:** investimentos (aportes, resgates, atualização de valor e rendimento), reserva de emergência
   (meta em meses de custo de vida) e metas com prazo e quanto guardar por mês.
+- **Contas:** todas as suas contas do mês, classificadas em **fixas** (mesmo valor todo mês) ou **variáveis** (luz, água, mercado),
+  com prioridade (essencial / importante / supérfluo), dia de vencimento e duração (todo mês, até uma data ou parcelado).
+  Marcar como paga cria o lançamento; se a notificação do banco já virou lançamento, o app sugere o vínculo.
+  A análise compara as fixas com a renda: acima de **40%** (ajustável) ela lista o que cortar, começando pelo supérfluo,
+  mostra variáveis acima do previsto, parcelas que terminam em breve e uma leitura 50/30/20.
 - **Ajustes:** contas e cartões, categorias com limite mensal, tokens do celular, exportação CSV.
 - Funciona como app no celular (PWA: "Adicionar à tela inicial"), com tema claro/escuro automático.
 
@@ -109,6 +114,8 @@ Passo a passo em **[docs/android-macrodroid.md](docs/android-macrodroid.md)**. R
   O custo mensal é o que você informar ou a média das despesas dos últimos 3 meses.
 - **Metas:** valor guardado + saldo dos investimentos vinculados; com prazo, mostra quanto guardar por mês.
 - **Taxa de poupança** = (entradas − saídas) ÷ entradas do mês.
+- **Contas fixas x renda:** soma das contas fixas vigentes no mês ÷ renda de referência (informada em Contas › Análise,
+  ou a média das entradas dos últimos 3 meses). Cartão de crédito não é conta: cadastre as assinaturas e parcelas que vão nele.
 
 ## Desenvolvimento local
 

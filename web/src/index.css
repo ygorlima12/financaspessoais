@@ -81,10 +81,10 @@ a { color: var(--blue); text-decoration: none; }
   border-top: 0.5px solid var(--sep);
 }
 .tabbar a {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
-  color: var(--text-2); font-size: 10.5px; font-weight: 500; position: relative; padding: 2px 0;
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0;
+  color: var(--text-2); font-size: 10px; font-weight: 500; position: relative; padding: 2px 0;
 }
-.tabbar a svg { width: 26px; height: 26px; }
+.tabbar a svg { width: 24px; height: 24px; }
 .tabbar a.active { color: var(--blue); }
 .badge {
   position: absolute; top: -2px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px;

@@ -53,6 +53,31 @@ export default function Home() {
         </Link>
       )}
 
+      {d.bills.total > 0 && (
+        <Link to="/contas" className="card" style={{ display: 'block', marginBottom: 12, color: 'inherit' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+            <strong style={{ whiteSpace: 'nowrap' }}>🧾 Contas do mês</strong>
+            <span className="muted small" style={{ textAlign: 'right' }}>{d.bills.paid}/{d.bills.total} pagas</span>
+          </div>
+          <div className="small muted" style={{ marginTop: 2 }}>{money(d.bills.openCents)} em aberto</div>
+          {d.bills.late.length > 0 && (
+            <div className="small" style={{ color: 'var(--red)', marginTop: 6 }}>
+              {d.bills.late.length === 1 ? 'Atrasada: ' : `${d.bills.late.length} atrasadas: `}{d.bills.late.map((b: any) => b.name).join(', ')}
+            </div>
+          )}
+          {d.bills.upcoming.length > 0 && (
+            <div className="small muted" style={{ marginTop: 4 }}>
+              Próximas: {d.bills.upcoming.map((b: any) => `${b.name} (${b.daysLeft === 0 ? 'hoje' : 'dia ' + Number(b.dueDate.slice(8, 10))})`).join(', ')}
+            </div>
+          )}
+          {d.bills.fixedRatio != null && (
+            <div className="small" style={{ marginTop: 6, color: d.bills.overLimit ? 'var(--red)' : 'var(--text-2)' }}>
+              Fixas = {pct(d.bills.fixedRatio)} da renda{d.bills.overLimit ? ` — acima do limite de ${d.bills.limitPct}%` : ''}
+            </div>
+          )}
+        </Link>
+      )}
+
       <div className="card hero">
         <div className="label">Patrimônio total</div>
         <div className="value num">{money(d.netWorthCents)}</div>

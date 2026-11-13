@@ -17,6 +17,7 @@ import transactionRoutes from './routes/transactions.js';
 import captureRoutes from './routes/captures.js';
 import investmentRoutes from './routes/investments.js';
 import planningRoutes from './routes/planning.js';
+import billRoutes from './routes/bills.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -63,10 +64,11 @@ export async function buildApp() {
   await app.register(transactionRoutes);
   await app.register(investmentRoutes);
   await app.register(planningRoutes);
+  await app.register(billRoutes);
 
   // Frontend (build do Vite) servido pelo mesmo processo
   if (existsSync(config.webDist)) {
-    await app.register(fastifyStatic, { root: path.resolve(config.webDist), wildcard: false });
+    await app.register(fastifyStatic, { root: path.resolve(config.webDist), wildcard: true });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/')) return reply.code(404).send({ error: 'Rota não encontrada.' });
       return reply.type('text/html').sendFile('index.html');
