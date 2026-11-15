@@ -79,10 +79,13 @@ function AccountForm({ acc, onClose }: { acc: Account | null; onClose: () => voi
     name: acc?.name ?? '', type: acc?.type ?? 'corrente', bank: acc?.bank ?? '', initialBalanceCents: acc?.initialBalanceCents ?? 0,
     color: acc?.color ?? '#0a84ff', isReserve: acc?.isReserve ?? false, archived: acc?.archived ?? false,
     closingDay: String(acc?.closingDay ?? ''), dueDay: String(acc?.dueDay ?? ''), limitCents: (acc?.limitCents ?? null) as number | null,
+    reserveRequired: acc?.reserveRequired ?? true, reserveAccountId: acc?.reserveAccountId ?? '', reserveFromAccountId: acc?.reserveFromAccountId ?? '',
   })
+  const { accounts: all } = useData()
   const { busy, error, run } = useSubmit()
   const save = () => run(async () => {
-    const body = { ...v, closingDay: v.type === 'cartao' && v.closingDay ? Number(v.closingDay) : null, dueDay: v.type === 'cartao' && v.dueDay ? Number(v.dueDay) : null, limitCents: v.type === 'cartao' ? v.limitCents : null }
+    const body = { ...v, closingDay: v.type === 'cartao' && v.closingDay ? Number(v.closingDay) : null, dueDay: v.type === 'cartao' && v.dueDay ? Number(v.dueDay) : null, limitCents: v.type === 'cartao' ? v.limitCents : null,
+      reserveAccountId: v.type === 'cartao' ? v.reserveAccountId || null : null, reserveFromAccountId: v.type === 'cartao' ? v.reserveFromAccountId || null : null }
     if (acc) await api(`/accounts/${acc.id}`, { method: 'PATCH', body })
     else await api('/accounts', { body })
     notifyChanged(); onClose()
@@ -119,6 +122,26 @@ function AccountForm({ acc, onClose }: { acc: Account | null; onClose: () => voi
           </div>
           <Field label="Limite do cartão (opcional)"><MoneyField cents={v.limitCents} onChange={(c) => setV({ ...v, limitCents: c })} /></Field>
           <div className="small muted" style={{ marginTop: -8, marginBottom: 14, padding: '0 4px' }}>Veja no app do banco: a fatura fecha num dia e vence alguns dias depois (ex.: fecha dia 3, vence dia 10).</div>
+          <div className="check"><span>Exigir guardar o dinheiro de cada compra<br /><span className="small muted">O app avisa em toda compra não guardada.</span></span><Switch checked={v.reserveRequired} onChange={(reserveRequired) => setV({ ...v, reserveRequired })} /></div>
+          {v.reserveRequired && (
+            <>
+              <div className="row-fields">
+                <Field label="Guardar de">
+                  <select className="input" value={v.reserveFromAccountId} onChange={(e) => setV({ ...v, reserveFromAccountId: e.target.value })}>
+                    <option value="">—</option>
+                    {all.filter((a) => a.type !== 'cartao' && a.id !== acc?.id).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Guardar em">
+                  <select className="input" value={v.reserveAccountId} onChange={(e) => setV({ ...v, reserveAccountId: e.target.value })}>
+                    <option value="">—</option>
+                    {all.filter((a) => a.type !== 'cartao' && a.id !== acc?.id).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <div className="small muted" style={{ marginTop: -8, marginBottom: 14, padding: '0 4px' }}>Com os dois preenchidos, ao marcar “guardei” o app registra a transferência (ex.: Nubank → Poupança). Cadastre a poupança como uma conta.</div>
+            </>
+          )}
         </>
       )}
       <div className="field"><span>Cor</span></div>

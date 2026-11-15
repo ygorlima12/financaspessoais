@@ -7,6 +7,7 @@ import { parseNotification, findAmount, fold } from '../parser/parse.js';
 import { aiParse } from '../parser/ai.js';
 import { getSettings, learnMerchant, suggestCategory } from '../lib/finance.js';
 import { insertTx } from './transactions.js';
+import { reserveTransaction } from '../lib/reserve.js';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -237,6 +238,7 @@ export default async function captureRoutes(app: FastifyInstance) {
           occurredAt: zDateTime.optional(),
           transferAccountId: z.string().uuid().nullish(),
           rememberAccount: z.boolean().default(true),
+          reserved: z.boolean().optional(),
         }),
         req.body,
       );
@@ -249,6 +251,7 @@ export default async function captureRoutes(app: FastifyInstance) {
         'notificacao',
       );
       await sql`update captures set status = 'confirmada', transaction_id = ${t.id} where id = ${id}`;
+      if (b.reserved) await reserveTransaction(req.userId, t.id);
       if (b.kind !== 'transferencia') await learnMerchant(req.userId, cap.merchant ?? b.description, b.categoryId ?? null);
       if (b.rememberAccount && cap.packageName) {
         await sql`

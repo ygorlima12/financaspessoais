@@ -12,6 +12,7 @@ type Tx = {
   id: string; kind: string; amountCents: number; description: string; occurredAt: string; accountId: string; accountName: string
   categoryId: string | null; categoryName: string | null; categoryIcon: string | null; categoryColor: string | null
   transferAccountId: string | null; transferAccountName: string | null; investmentName: string | null; source: string; notes: string | null
+  accountType?: string; reservedAt?: string | null
 }
 
 const FILTERS: Array<[string, string]> = [['', 'Todos'], ['despesa', 'Saídas'], ['receita', 'Entradas'], ['transferencia', 'Transferências'], ['aporte', 'Aportes'], ['resgate', 'Resgates']]
@@ -92,9 +93,14 @@ export default function Transactions() {
       {edit && (
         <TransactionSheet
           title="Editar lançamento"
-          initial={{ ...edit, kind: edit.kind as any }}
+          initial={{ ...edit, kind: edit.kind as any, reserved: !!edit.reservedAt }}
           onClose={() => setEdit(null)}
-          onSubmit={async (v) => { await api(`/transactions/${edit.id}`, { method: 'PATCH', body: v }); notifyChanged() }}
+          onSubmit={async (v) => {
+            const { reserved, ...body } = v
+            await api(`/transactions/${edit.id}`, { method: 'PATCH', body })
+            if (!!reserved !== !!edit.reservedAt) await api(`/transactions/${edit.id}/reserve`, reserved ? { body: {} } : { method: 'DELETE' })
+            notifyChanged()
+          }}
           onDelete={async () => { await api(`/transactions/${edit.id}`, { method: 'DELETE' }); notifyChanged() }}
         />
       )}
@@ -116,7 +122,7 @@ export function TxRow({ t, onClick }: { t: Tx; onClick?: () => void }) {
       <div className="icon-dot" style={t.categoryColor ? { background: `color-mix(in srgb, ${t.categoryColor} 22%, transparent)` } : undefined}>{icon}</div>
       <div className="grow">
         <div className="title">{t.description || t.categoryName || 'Sem descrição'}</div>
-        <div className="meta">{meta}{t.source === 'notificacao' ? ' · 🔔' : ''}</div>
+        <div className="meta">{meta}{t.source === 'notificacao' ? ' · 🔔' : ''}{t.accountType === 'cartao' && t.kind === 'despesa' ? (t.reservedAt ? ' · ✓ guardado' : <span style={{ color: 'var(--orange)' }}> · não guardado</span>) : ''}</div>
       </div>
       <div className="end">
         <div className={`num ${cls}`} style={{ fontWeight: 500 }}>{sign}{money(t.amountCents)}</div>

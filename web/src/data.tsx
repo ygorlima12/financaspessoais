@@ -5,6 +5,7 @@ export type Account = {
   id: string; name: string; type: string; bank: string | null; color: string; balanceCents: number
   initialBalanceCents: number; isReserve: boolean; archived: boolean
   closingDay: number | null; dueDay: number | null; limitCents: number | null
+  reserveAccountId: string | null; reserveFromAccountId: string | null; reserveRequired: boolean
 }
 export type Category = {
   id: string; name: string; kind: 'receita' | 'despesa'; icon: string; color: string; monthlyBudgetCents: number | null

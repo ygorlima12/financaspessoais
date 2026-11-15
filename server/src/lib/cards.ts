@@ -47,6 +47,10 @@ export async function invoiceFor(userId: string, card: any, month: string, withI
     where user_id = ${userId} and account_id = ${card.id} and kind in ('despesa','receita')
       and occurred_at >= (${w.start}::date + interval '1 day') and occurred_at < (${w.end}::date + interval '1 day')`;
   // Pagamentos: transferências que entram no cartão entre este fechamento e o próximo
+  const [unres] = await sql`
+    select coalesce(sum(amount_cents), 0) as total, count(*)::int as count from transactions
+    where user_id = ${userId} and account_id = ${card.id} and kind = 'despesa' and reserved_at is null
+      and occurred_at >= (${w.start}::date + interval '1 day') and occurred_at < (${w.end}::date + interval '1 day')`;
   const [pay] = await sql`
     select coalesce(sum(amount_cents), 0) as paid from transactions
     where user_id = ${userId} and kind = 'transferencia' and transfer_account_id = ${card.id}
@@ -63,7 +67,8 @@ export async function invoiceFor(userId: string, card: any, month: string, withI
   let payments: any[] = [];
   if (withItems) {
     items = await sql`
-      select t.id, t.kind, t.amount_cents, t.description, t.occurred_at, t.source, c.name as category_name, c.icon as category_icon, c.color as category_color
+      select t.id, t.kind, t.amount_cents, t.description, t.occurred_at, t.source, t.reserved_at, t.reserve_transaction_id,
+        c.name as category_name, c.icon as category_icon, c.color as category_color
       from transactions t left join categories c on c.id = t.category_id
       where t.user_id = ${userId} and t.account_id = ${card.id} and t.kind in ('despesa','receita')
         and t.occurred_at >= (${w.start}::date + interval '1 day') and t.occurred_at < (${w.end}::date + interval '1 day')
@@ -85,6 +90,8 @@ export async function invoiceFor(userId: string, card: any, month: string, withI
     totalCents: total,
     paidCents: paid,
     remainingCents: Math.max(0, total - paid),
+    unreservedCents: Number(unres.total),
+    unreservedCount: unres.count,
     status,
     items,
     payments,
@@ -109,6 +116,7 @@ export async function cardsSummary(userId: string) {
     const owedCents = -(c.initialBalanceCents + Number(bal[0].v)); // positivo = deve
     out.push({
       id: c.id, name: c.name, bank: c.bank, color: c.color, closingDay: c.closingDay, dueDay: c.dueDay, limitCents: c.limitCents,
+      reserveAccountId: c.reserveAccountId, reserveFromAccountId: c.reserveFromAccountId, reserveRequired: c.reserveRequired,
       owedCents,
       availableCents: c.limitCents ? Math.max(0, c.limitCents - Math.max(0, owedCents)) : null,
       openInvoice: open,

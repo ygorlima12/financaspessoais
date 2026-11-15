@@ -27,9 +27,10 @@ export default function Inbox() {
     setBusyId(id)
     try { await fn(); notifyChanged(); reload() } catch (e: any) { alert(e.message) } finally { setBusyId(null) }
   }
-  const quickConfirm = (c: Capture) =>
+  const quickConfirm = (c: Capture, reserved = false) =>
     act(c.id, () => api(`/captures/${c.id}/confirm`, {
       body: {
+        reserved,
         accountId: c.linkedAccountId, categoryId: c.suggestedCategoryId, kind: c.kind, amountCents: c.amountCents,
         description: c.merchant ?? (c.kind === 'receita' ? 'Entrada' : 'Saída'),
       },
@@ -101,6 +102,9 @@ export default function Inbox() {
                       {acc && c.kind && c.amountCents ? (
                         <>
                           <button className="btn sm green" disabled={busyId === c.id} onClick={() => quickConfirm(c)}>✓ Lançar</button>
+                          {acc.type === 'cartao' && acc.reserveRequired && c.kind === 'despesa' && (
+                            <button className="btn sm green" style={{ background: 'var(--teal)' }} disabled={busyId === c.id} onClick={() => quickConfirm(c, true)}>✓ + guardei</button>
+                          )}
                           <button className="btn sm secondary" onClick={() => setOpen(c)}>Editar</button>
                         </>
                       ) : (

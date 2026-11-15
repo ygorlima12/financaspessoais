@@ -20,6 +20,10 @@ reserva de emergência e metas — com **captura automática das notificações 
 - **Sonhos** (em Crescer): produtos que você quer comprar, com link, preço e imagem (o app tenta ler título, preço e
   foto do link), ordenados por prioridade. Cada sonho pode virar uma meta com uma caixinha/investimento vinculado, e a
   fila mostra em que mês cada um fica ao alcance com o valor que você guarda por mês. "Comprei" lança a saída.
+- **Cartão com dinheiro guardado:** regra opcional por cartão: só passa no cartão se o valor for separado na hora.
+  Cada compra tem a marcação "guardado"; o que não foi guardado aparece em laranja no Cartão e no Início. Configurando
+  "guardar de" e "guardar em" (ex.: Nubank → Poupança), marcar registra a transferência, e o pagamento da fatura já sugere
+  sair da poupança.
 - **Ajustes:** contas e cartões, categorias com limite mensal, tokens do celular, exportação CSV.
 - Funciona como app no celular (PWA: "Adicionar à tela inicial"), com tema claro/escuro automático.
 

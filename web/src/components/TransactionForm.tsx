@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useData } from '../data'
 import { fromLocalInput, toLocalInput } from '../format'
-import { ErrorBox, Field, MoneyField, Segmented, Sheet, useSubmit } from './ui'
+import { ErrorBox, Field, MoneyField, Segmented, Sheet, Switch, useSubmit } from './ui'
 
 export type TxKind = 'despesa' | 'receita' | 'transferencia'
 export type TxValues = {
@@ -13,6 +13,7 @@ export type TxValues = {
   transferAccountId: string | null
   occurredAt: string
   notes?: string | null
+  reserved?: boolean
 }
 
 export function TransactionSheet({
@@ -37,6 +38,7 @@ export function TransactionSheet({
     transferAccountId: initial?.transferAccountId ?? null,
     occurredAt: toLocalInput(initial?.occurredAt),
     notes: initial?.notes ?? '',
+    reserved: initial?.reserved ?? false,
   })
   const set = (p: Partial<TxValues>) => setV((s) => ({ ...s, ...p }))
   const cats = useMemo(() => categories.filter((c) => c.kind === v.kind), [categories, v.kind])
@@ -112,6 +114,17 @@ export function TransactionSheet({
         )}
       </div>
       {cardHint && <div className="info-box small">💳 {cardHint}</div>}
+      {acc?.type === 'cartao' && v.kind === 'despesa' && acc.reserveRequired && (
+        <div className={v.reserved ? 'info-box' : 'warn-box'} style={{ padding: '10px 14px' }}>
+          <div className="check" style={{ padding: 0 }}>
+            <span>
+              <b>{v.reserved ? '✓ Dinheiro guardado' : '⚠️ Dinheiro ainda não guardado'}</b><br />
+              <span className="small muted">Regra do cartão: só passa se guardar o valor na hora{acc.reserveAccountId ? ` (vai para ${accounts.find((a) => a.id === acc.reserveAccountId)?.name ?? 'a poupança'})` : ''}.</span>
+            </span>
+            <Switch checked={!!v.reserved} onChange={(reserved) => set({ reserved })} />
+          </div>
+        </div>
+      )}
       <Field label="Data e hora">
         <input className="input" type="datetime-local" value={v.occurredAt} onChange={(e) => set({ occurredAt: e.target.value })} />
       </Field>

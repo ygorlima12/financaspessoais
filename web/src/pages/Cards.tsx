@@ -10,12 +10,14 @@ import { TransactionSheet } from '../components/TransactionForm'
 type Invoice = {
   month: string; periodStart: string; periodEnd: string; dueDate: string
   purchasesCents: number; creditsCents: number; totalCents: number; paidCents: number; remainingCents: number
+  unreservedCents: number; unreservedCount: number
   status: 'aberta' | 'fechada' | 'paga' | 'vencida' | 'parcial'
   items: any[]; payments: any[]
 }
 type Card = {
   id: string; name: string; bank: string | null; color: string; closingDay: number | null; dueDay: number | null; limitCents: number | null
   owedCents: number; availableCents: number | null; openInvoice: Invoice; lastInvoice: Invoice
+  reserveAccountId: string | null; reserveFromAccountId: string | null; reserveRequired: boolean
 }
 
 const STATUS: Record<Invoice['status'], { label: string; cls: string }> = {
@@ -37,6 +39,21 @@ export default function Cards() {
   const [pay, setPay] = useState(false)
   const [buy, setBuy] = useState<'despesa' | 'receita' | null>(null)
   const [help, setHelp] = useState(false)
+  const { accounts } = useData()
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const toggleReserve = async (t: any) => {
+    setBusyId(t.id)
+    try {
+      await api(`/transactions/${t.id}/reserve`, t.reservedAt ? { method: 'DELETE' } : { body: {} })
+      notifyChanged(); inv.reload(); reload()
+    } catch (e: any) { alert(e.message) } finally { setBusyId(null) }
+  }
+  const reserveAll = async () => {
+    if (!card || !month) return
+    if (!confirm(`Marcar ${inv.data?.unreservedCount} compras como guardadas${card.reserveAccountId ? ' e registrar as transferências para a poupança' : ''}?`)) return
+    await api(`/cards/${card.id}/reserve-all`, { body: { month } })
+    notifyChanged(); inv.reload(); reload()
+  }
 
   if (loading && !cards) return <Spinner />
 
@@ -101,6 +118,26 @@ export default function Cards() {
             ) : <Spinner />}
           </div>
 
+          {card.reserveRequired && inv.data && (
+            <div className="card" style={{ marginTop: 12, background: inv.data.unreservedCents > 0 ? 'color-mix(in srgb, var(--orange) 12%, var(--bg-elev))' : undefined }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div>
+                  <strong>{inv.data.unreservedCents > 0 ? '⚠️ Sem dinheiro guardado' : '✓ Tudo guardado'}</strong>
+                  <div className="small muted">
+                    {inv.data.unreservedCents > 0
+                      ? `${money(inv.data.unreservedCents)} em ${inv.data.unreservedCount} ${inv.data.unreservedCount === 1 ? 'compra' : 'compras'} desta fatura`
+                      : 'Todas as compras desta fatura já têm o dinheiro separado'}
+                    {card.reserveAccountId ? ` · poupança: ${accounts.find((a) => a.id === card.reserveAccountId)?.name ?? ''}` : ''}
+                  </div>
+                </div>
+                {inv.data.unreservedCents > 0 && <button className="btn sm" style={{ background: 'var(--orange)' }} onClick={reserveAll}>Guardar tudo</button>}
+              </div>
+              {!card.reserveAccountId && (
+                <div className="small muted" style={{ marginTop: 8 }}>Dica: em <Link to="/ajustes?tab=contas">Ajustes › Contas</Link>, defina “guardar de” e “guardar em” para o app registrar a transferência para a poupança quando você marcar.</div>
+              )}
+            </div>
+          )}
+
           {card.limitCents && (
             <div className="card" style={{ marginTop: 12 }}>
               <div className="small" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -131,7 +168,14 @@ export default function Cards() {
                         <div className="title">{t.description || t.categoryName || 'Compra'}</div>
                         <div className="meta">{d(t.occurredAt.slice(0, 10))} {timeLabel(t.occurredAt)}{t.categoryName ? ` · ${t.categoryName}` : ''}{t.source === 'notificacao' ? ' · 🔔' : ''}</div>
                       </div>
-                      <div className={`end num ${t.kind === 'receita' ? 'pos' : ''}`}>{t.kind === 'receita' ? '−' : ''}{money(t.amountCents)}</div>
+                      <div className="end">
+                        <div className={`num ${t.kind === 'receita' ? 'pos' : ''}`}>{t.kind === 'receita' ? '−' : ''}{money(t.amountCents)}</div>
+                        {card.reserveRequired && t.kind === 'despesa' && (
+                          <button className={`pill ${t.reservedAt ? 'green' : 'orange'}`} style={{ border: 0, marginTop: 4, cursor: 'pointer' }} disabled={busyId === t.id} onClick={() => toggleReserve(t)}>
+                            {t.reservedAt ? '✓ guardado' : '☐ guardar'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -174,6 +218,7 @@ export default function Cards() {
             <p><b>Compra no cartão = Saída</b>, com “sai de: {card?.name ?? 'Cartão'}”. É isso que o app faz sozinho quando a notificação de compra chega pelo celular. A compra já conta como gasto no dia em que foi feita (na categoria dela).</p>
             <p><b>Pagar a fatura = Transferência</b> da sua conta corrente para o cartão. Use o botão “Pagar fatura” aqui. <u>Não</u> lance a fatura como saída: o gasto já foi contado nas compras e ficaria em dobro.</p>
             <p><b>Entrada no cartão = estorno ou crédito</b> (compra cancelada, cashback na fatura). Diminui a fatura.</p>
+            <p><b>Dinheiro guardado:</b> a regra é só passar no cartão se o valor for separado na hora. Cada compra tem um botão “guardar”; marcando, o app registra a transferência da conta para a poupança (se configurado em Ajustes › Contas) e, no vencimento, você paga a fatura com esse dinheiro. O que não foi guardado aparece em laranja aqui e no Início.</p>
             <p><b>Assinaturas e parcelas no cartão</b> (Netflix, parcela da loja): cadastre em <Link to="/contas">Contas</Link> com “sai de: {card?.name ?? 'Cartão'}”. Ao marcar como paga, vira uma compra na fatura.</p>
             <p style={{ marginBottom: 0 }}><b>Fechamento e vencimento:</b> a fatura de um mês reúne as compras entre o fechamento anterior e o fechamento atual. Configure os dias em Ajustes › Contas.</p>
           </div>
@@ -187,7 +232,7 @@ function PaySheet({ card, inv, onClose }: { card: Card; inv: Invoice; onClose: (
   const { accounts } = useData()
   const sources = accounts.filter((a) => a.type !== 'cartao')
   const [amount, setAmount] = useState<number | null>(inv.remainingCents || inv.totalCents || null)
-  const [from, setFrom] = useState(sources[0]?.id ?? '')
+  const [from, setFrom] = useState(card.reserveAccountId ?? sources[0]?.id ?? '')
   const [when, setWhen] = useState(toLocalInput())
   const { busy, error, run } = useSubmit()
   const save = () => run(async () => {

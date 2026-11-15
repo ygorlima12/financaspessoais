@@ -17,6 +17,9 @@ const accountBody = z.object({
   closingDay: z.coerce.number().int().min(1).max(31).nullish(),
   dueDay: z.coerce.number().int().min(1).max(31).nullish(),
   limitCents: z.coerce.number().int().positive().nullish(),
+  reserveAccountId: z.string().uuid().nullish(),
+  reserveFromAccountId: z.string().uuid().nullish(),
+  reserveRequired: z.boolean().optional(),
 });
 
 export default async function accountRoutes(app: FastifyInstance) {
@@ -40,7 +43,11 @@ export default async function accountRoutes(app: FastifyInstance) {
   app.patch('/api/accounts/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
     const fields: Record<string, unknown> = onlySent(parse(accountBody.partial(), req.body), req.body);
-    for (const k of ['bank', 'closingDay', 'dueDay', 'limitCents']) if (k in fields) fields[k] = fields[k] || null;
+    for (const k of ['bank', 'closingDay', 'dueDay', 'limitCents', 'reserveAccountId', 'reserveFromAccountId']) if (k in fields) fields[k] = fields[k] || null;
+    for (const k of ['reserveAccountId', 'reserveFromAccountId']) if (fields[k]) {
+      const [ok] = await sql`select 1 from accounts where id = ${fields[k] as string} and user_id = ${req.userId}`;
+      if (!ok) throw new HttpError(400, 'Conta inválida.');
+    }
     if (!Object.keys(fields).length) throw new HttpError(400, 'Nada para atualizar.');
     const [a] = await sql`update accounts set ${sql(fields)} where id = ${id} and user_id = ${req.userId} returning *`;
     if (!a) throw new HttpError(404, 'Conta não encontrada.');

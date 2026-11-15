@@ -53,6 +53,17 @@ export default function Home() {
         </Link>
       )}
 
+      {d.cardsUnreserved?.length > 0 && (
+        <Link to="/cartao" className="card row" style={{ marginBottom: 12, color: 'inherit', background: 'color-mix(in srgb, var(--orange) 12%, var(--bg-elev))' }}>
+          <div className="icon-dot" style={{ background: 'color-mix(in srgb, var(--orange) 25%, transparent)' }}>💳</div>
+          <div className="grow">
+            <div className="title" style={{ fontWeight: 600 }}>{money(d.cardsUnreserved.reduce((s: number, c: any) => s + c.totalCents, 0))} no cartão sem dinheiro guardado</div>
+            <div className="meta">{d.cardsUnreserved.map((c: any) => `${c.name}: ${c.count} ${c.count === 1 ? 'compra' : 'compras'}`).join(' · ')}</div>
+          </div>
+          <span className="chev">›</span>
+        </Link>
+      )}
+
       {d.bills.total > 0 && (
         <Link to="/contas" className="card" style={{ display: 'block', marginBottom: 12, color: 'inherit' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>

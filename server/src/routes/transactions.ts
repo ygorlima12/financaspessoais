@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { sql } from '../db.js';
 import { HttpError, monthRange, onlySent, parse, requireAuth, zDateTime, zIdParam, zMonth, zPositiveCents } from '../lib/http.js';
 import { learnMerchant } from '../lib/finance.js';
+import { reserveTransaction, unreserveTransaction } from '../lib/reserve.js';
 
 export const txBody = z.object({
   accountId: z.string().uuid(),
@@ -13,6 +14,8 @@ export const txBody = z.object({
   occurredAt: zDateTime.optional(),
   transferAccountId: z.string().uuid().nullish(),
   notes: z.string().trim().max(500).nullish(),
+  /** compra no cartão: já guardei o dinheiro (cria a transferência se o cartão estiver configurado) */
+  reserved: z.boolean().optional(),
 });
 export type TxBody = z.infer<typeof txBody>;
 
@@ -62,7 +65,7 @@ export default async function transactionRoutes(app: FastifyInstance) {
     const { start, end, month } = monthRange(q.month);
     const rows = await sql`
       select t.*, c.name as category_name, c.icon as category_icon, c.color as category_color,
-        a.name as account_name, ta.name as transfer_account_name, i.name as investment_name
+        a.name as account_name, a.type as account_type, ta.name as transfer_account_name, i.name as investment_name
       from transactions t
       join accounts a on a.id = t.account_id
       left join accounts ta on ta.id = t.transfer_account_id
@@ -91,6 +94,7 @@ export default async function transactionRoutes(app: FastifyInstance) {
     const b = parse(txBody, req.body);
     const t = await insertTx(req.userId, b);
     if (b.kind !== 'transferencia') await learnMerchant(req.userId, b.description, b.categoryId ?? null);
+    if (b.reserved) await reserveTransaction(req.userId, t.id);
     return t;
   });
 
@@ -118,9 +122,26 @@ export default async function transactionRoutes(app: FastifyInstance) {
     return t;
   });
 
+  /** Compra no cartão: marcar/desmarcar "já guardei o dinheiro" */
+  app.post('/api/transactions/:id/reserve', async (req) => {
+    const { id } = parse(zIdParam, req.params);
+    const b = parse(z.object({ fromAccountId: z.string().uuid().nullish(), transfer: z.boolean().optional() }), req.body ?? {});
+    const r = await reserveTransaction(req.userId, id, b);
+    if (!r) throw new HttpError(404, 'Lançamento não encontrado.');
+    return r;
+  });
+  app.delete('/api/transactions/:id/reserve', async (req) => {
+    const { id } = parse(zIdParam, req.params);
+    const r = await unreserveTransaction(req.userId, id);
+    if (!r) throw new HttpError(404, 'Lançamento não encontrado.');
+    return r;
+  });
+
   app.delete('/api/transactions/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
     await sql.begin(async (tx) => {
+      // compra no cartão com dinheiro guardado: a transferência de reserva vai junto
+      await tx`delete from transactions where id = (select reserve_transaction_id from transactions where id = ${id} and user_id = ${req.userId})`;
       // Se veio de uma notificação, a captura volta para a caixa de entrada como "ignorada"
       await tx`update captures set status = 'ignorada', transaction_id = null where transaction_id = ${id} and user_id = ${req.userId}`;
       await tx`delete from investment_movements where transaction_id = ${id}`;
