@@ -333,6 +333,57 @@ function Phone() {
 }
 
 // ---------------- Perfil ----------------
+const MODELS = [['', 'Padrão (claude-haiku-5-5 · rápido e barato)'], ['claude-sonnet-5-5', 'claude-sonnet-5-5 · mais preciso'], ['claude-opus-5-5', 'claude-opus-5-5 · o mais capaz']]
+
+function AiSettings() {
+  const st = useApi<{ configured: boolean; source: string | null; model: string | null; hasOwnKey: boolean; customModel: string | null }>('/ai/status')
+  const [key, setKey] = useState('')
+  const [model, setModel] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+  const { busy, error, run } = useSubmit()
+  const curModel = model ?? st.data?.customModel ?? ''
+  const save = () => run(async () => {
+    await api('/ai/key', { method: 'PUT', body: { ...(key ? { apiKey: key } : {}), model: curModel || null } })
+    setKey(''); setMsg('Salvo.'); st.reload()
+  })
+  const test = () => run(async () => {
+    const r = await api('/ai/test', { body: {} })
+    setMsg(`✓ Funcionou (${r.model}): “${r.reply}”`)
+  })
+  return (
+    <>
+      <div className="section-title">Inteligência artificial</div>
+      <div className="card">
+        <div className="small muted" style={{ marginBottom: 10 }}>
+          Com uma chave da API da Anthropic, o “Posso gastar?” explica a decisão em texto e as notificações de banco em formatos desconhecidos são interpretadas por IA.
+          A chave fica criptografada no seu servidor. Crie a sua em <b>console.anthropic.com</b> (API Keys). Cada consulta custa centavos.
+        </div>
+        {st.data && (
+          <div className={`small ${st.data.configured ? '' : 'muted'}`} style={{ marginBottom: 10 }}>
+            Status: {st.data.configured ? <b style={{ color: 'var(--green)' }}>configurada {st.data.source === 'servidor' ? '(pelo .env do servidor)' : '(sua chave)'}</b> : 'não configurada'}
+            {st.data.model ? ` · modelo ${st.data.model}` : ''}
+          </div>
+        )}
+        <Field label={st.data?.hasOwnKey ? 'Trocar a chave (deixe vazio para manter)' : 'Chave da API (sk-ant-…)'}>
+          <input className="input" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-ant-api03-…" autoComplete="off" />
+        </Field>
+        <Field label="Modelo">
+          <select className="input" value={curModel} onChange={(e) => setModel(e.target.value)}>
+            {MODELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Field>
+        <ErrorBox error={error} />
+        {msg && <div className="info-box small">{msg}</div>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn sm" disabled={busy} onClick={save}>Salvar</button>
+          <button className="btn sm secondary" disabled={busy || !st.data?.configured} onClick={test}>Testar conexão</button>
+          {st.data?.hasOwnKey && <button className="btn sm danger" disabled={busy} onClick={() => run(async () => { await api('/ai/key', { method: 'PUT', body: { apiKey: null } }); setMsg('Chave removida.'); st.reload() })}>Remover chave</button>}
+        </div>
+      </div>
+    </>
+  )
+}
+
 function Profile({ onLogout }: { onLogout: () => void }) {
   const { user } = useData()
   const [pw, setPw] = useState({ current: '', next: '' })
@@ -352,6 +403,7 @@ function Profile({ onLogout }: { onLogout: () => void }) {
         {ok && <div className="info-box small">Senha alterada.</div>}
         <button className="btn sm" disabled={busy} onClick={() => run(async () => { await api('/auth/password', { body: pw }); setPw({ current: '', next: '' }); setOk(true) })}>Alterar senha</button>
       </div>
+      <AiSettings />
       <div className="section-title">Dados</div>
       <div className="list plain">
         <a className="row" href="/api/export/transactions.csv"><div className="grow">Exportar lançamentos (CSV)</div><span className="chev">›</span></a>

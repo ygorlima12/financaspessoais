@@ -128,7 +128,7 @@ export default async function captureRoutes(app: FastifyInstance) {
       // 2) Interpretação
       let r = parseNotification({ title: p.title, text, packageName: p.packageName, appName: p.appName });
       if (!r.isTransaction && r.discardReason === 'tipo (entrada/saída) não identificado') {
-        const ai = await aiParse(`${p.title ?? ''}\n${text}`, r.bank);
+        const ai = await aiParse(userId, `${p.title ?? ''}\n${text}`, r.bank);
         if (ai) r = { ...r, ...ai };
       }
 

@@ -6,6 +6,7 @@ import { fromLocalInput, money, monthLabel, pct, shiftMonth, timeLabel, toLocalI
 import { notifyChanged, useApi } from '../hooks'
 import { Empty, ErrorBox, Field, MoneyField, Progress, Sheet, Spinner, useSubmit } from '../components/ui'
 import { TransactionSheet } from '../components/TransactionForm'
+import { SpendCheckSheet } from '../components/SpendCheck'
 
 type Invoice = {
   month: string; periodStart: string; periodEnd: string; dueDate: string
@@ -39,6 +40,7 @@ export default function Cards() {
   const [pay, setPay] = useState(false)
   const [buy, setBuy] = useState<'despesa' | 'receita' | null>(null)
   const [help, setHelp] = useState(false)
+  const [spend, setSpend] = useState(false)
   const { accounts } = useData()
   const [busyId, setBusyId] = useState<string | null>(null)
   const toggleReserve = async (t: any) => {
@@ -150,6 +152,7 @@ export default function Cards() {
           )}
 
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button className="btn sm secondary" onClick={() => setSpend(true)}>💸 Posso?</button>
             <button className="btn sm" style={{ flex: 1 }} onClick={() => setBuy('despesa')}>+ Compra no cartão</button>
             <button className="btn sm secondary" style={{ flex: 1 }} onClick={() => setBuy('receita')}>+ Estorno / crédito</button>
           </div>
@@ -211,6 +214,7 @@ export default function Cards() {
         </>
       )}
 
+      {spend && <SpendCheckSheet onClose={() => setSpend(false)} />}
       {help && (
         <Sheet title="Como funciona o cartão" onClose={() => setHelp(false)}>
           <div className="card">

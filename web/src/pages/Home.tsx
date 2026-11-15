@@ -7,6 +7,7 @@ import { money, moneyCompact, monthLabel, pct, signedMoney } from '../format'
 import { notifyChanged, useApi } from '../hooks'
 import { Progress, Spinner } from '../components/ui'
 import { TransactionSheet } from '../components/TransactionForm'
+import { SpendCheckSheet } from '../components/SpendCheck'
 
 export function useNewTransaction() {
   const [open, setOpen] = useState(false)
@@ -24,6 +25,7 @@ export default function Home() {
   const { user } = useData()
   const { data: d, loading } = useApi<any>('/dashboard')
   const nt = useNewTransaction()
+  const [spend, setSpend] = useState(false)
   if (loading && !d) return <Spinner />
   if (!d) return null
 
@@ -40,7 +42,9 @@ export default function Home() {
           <div className="sub">{greet}, {user.name.split(' ')[0]}</div>
           <h1>Início</h1>
         </div>
+        <button className="btn sm" style={{ background: 'linear-gradient(135deg, #34c759, #0a84ff)' }} onClick={() => setSpend(true)}>💸 Posso gastar?</button>
       </div>
+      {spend && <SpendCheckSheet onClose={() => setSpend(false)} />}
 
       {d.pendingCaptures > 0 && (
         <Link to="/entrada" className="card row" style={{ marginBottom: 12, color: 'inherit' }}>

@@ -1,12 +1,13 @@
-import { config } from '../config.js';
+import { aiCredentials, askClaude } from '../lib/ai.js';
 import type { ParseResult, Kind } from './parse.js';
 
 /**
  * Fallback opcional com IA (Anthropic). Só é usado quando ANTHROPIC_API_KEY está
  * configurada e as regras não conseguiram entender a notificação, mas há indício de valor.
  */
-export async function aiParse(text: string, bank: string | null): Promise<Partial<ParseResult> | null> {
-  if (!config.anthropicApiKey) return null;
+export async function aiParse(userId: string, text: string, bank: string | null): Promise<Partial<ParseResult> | null> {
+  const cred = await aiCredentials(userId);
+  if (!cred) return null;
   const prompt = `Você recebe o texto de uma notificação de app de banco brasileiro.
 Responda APENAS com JSON no formato:
 {"is_transaction": boolean, "amount": number|null, "kind": "receita"|"despesa"|null, "merchant": string|null}
@@ -17,23 +18,7 @@ Responda APENAS com JSON no formato:
 Notificação: """${text.slice(0, 600)}"""`;
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': config.anthropicApiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: config.anthropicModel,
-        max_tokens: 200,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return null;
-    const data: any = await res.json();
-    const raw: string = data?.content?.[0]?.text ?? '';
+    const raw = await askClaude(cred, 'Responda apenas com JSON.', prompt, 200);
     const json = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
     if (!json.is_transaction || !json.amount || !['receita', 'despesa'].includes(json.kind)) {
       return { isTransaction: false, discardReason: 'IA: não é uma transação' };
