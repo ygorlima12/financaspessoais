@@ -30,6 +30,8 @@ export async function buildApp() {
 
   // Aceita texto puro (alguns apps de automação mandam assim)
   app.addContentTypeParser('text/plain', { parseAs: 'string' }, (_req, body, done) => done(null, body));
+  // Qualquer outro content-type (ou nenhum): recebe como texto em vez de responder 415.
+  app.addContentTypeParser('*', { parseAs: 'string' }, (_req, body, done) => done(null, body));
   // JSON tolerante: apps de automação às vezes geram JSON inválido (aspas dentro do texto da notificação).
   // Nesses casos o corpo segue como string e a rota /api/capture tenta recuperar os campos.
   app.removeContentTypeParser('application/json');

@@ -18,14 +18,51 @@ function pick(obj: any, keys: string[]): string | undefined {
   return undefined;
 }
 
-function deviceToken(req: FastifyRequest): string | undefined {
-  const h = req.headers.authorization;
-  if (h?.toLowerCase().startsWith('bearer ')) return h.slice(7).trim();
-  const x = req.headers['x-device-token'];
-  if (typeof x === 'string') return x.trim();
-  const q = (req.query as any)?.token;
-  if (typeof q === 'string') return q.trim();
+function deviceToken(req: FastifyRequest, body: any): string | undefined {
+  const clean = (v: unknown) => (typeof v === 'string' ? v.replace(/^bearer\s+/i, '').replace(/^["']|["']$/g, '').trim() : '');
+  const candidates = [req.headers.authorization, req.headers['x-device-token'], req.headers['x-token'], req.headers['token'],
+    (req.query as any)?.token, (req.query as any)?.key, body?.token, body?.key, body?.device_token];
+  for (const c of candidates) {
+    const v = clean(Array.isArray(c) ? c[0] : c);
+    if (v && v.length >= 8 && !/^\[.*\]$/.test(v)) return v;
+  }
   return undefined;
+}
+
+/** Extrai campos de multipart/form-data simples (name="x" ... valor) */
+function salvageMultipart(s: string): Record<string, string> | null {
+  if (!/content-disposition:\s*form-data/i.test(s)) return null;
+  const out: Record<string, string> = {};
+  const re = /name="([^"]+)"\r?\n(?:[^\r\n]*\r?\n)*?\r?\n([\s\S]*?)\r?\n--/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) out[m[1]] = m[2].trim();
+  return Object.keys(out).length ? out : null;
+}
+
+/** Corpo bruto como objeto, aceitando JSON, JSON quebrado, formulário, multipart ou texto puro */
+function bodyToObject(raw: unknown): any {
+  if (raw && typeof raw === 'object') return raw;
+  if (typeof raw !== 'string' || !raw.trim()) return {};
+  const s = raw.trim();
+  try { return JSON.parse(s); } catch {}
+  const j = salvageJson(s);
+  if (j) return j;
+  const mp = salvageMultipart(s);
+  if (mp) return mp;
+  if (/^[\w%.+-]+=[^\n]*(&[\w%.+-]+=[^\n]*)*$/.test(s) && s.includes('=')) {
+    try { return Object.fromEntries(new URLSearchParams(s)); } catch {}
+  }
+  return { text: s };
+}
+
+/** Versão curta e sem token do que chegou, para o diagnóstico em Ajustes › Celular */
+function summarizeForLog(req: FastifyRequest, body: any) {
+  const safe: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries({ ...(req.query as any), ...(body ?? {}) })) {
+    if (/token|key|auth/i.test(k)) continue;
+    safe[k] = typeof v === 'string' ? v.slice(0, 200) : v;
+  }
+  return JSON.stringify({ contentType: req.headers['content-type'] ?? null, campos: safe }).slice(0, 1500);
 }
 
 /** Recupera campos de um JSON quebrado: {"text":"Compra em "LOJA" R$ 10"} */
@@ -39,15 +76,7 @@ function salvageJson(s: string): Record<string, string> | null {
 }
 
 /** Converte o corpo recebido (JSON, formulário, texto puro ou query string) em campos padronizados. */
-function normalizePayload(req: FastifyRequest) {
-  let body: any = req.body;
-  if (typeof body === 'string') {
-    try {
-      body = JSON.parse(body);
-    } catch {
-      body = salvageJson(body) ?? { text: body };
-    }
-  }
+function normalizePayload(req: FastifyRequest, body: any) {
   const src = { ...(req.query as any), ...(body ?? {}) };
   const appName = pick(src, ['app', 'appName', 'app_name', 'application']);
   return {
@@ -66,14 +95,22 @@ export default async function captureRoutes(app: FastifyInstance) {
     '/api/capture',
     { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } },
     async (req, reply) => {
-      const token = deviceToken(req);
-      if (!token) return reply.code(401).send({ error: 'token ausente' });
+      const body = bodyToObject(req.body);
+      const token = deviceToken(req, body);
+      if (!token) return reply.code(401).send({ error: 'token ausente. Envie no cabeçalho "Authorization: Bearer SEU_TOKEN" ou como ?token=' });
       const [device] = await sql`select id, user_id from devices where token_hash = ${sha256(token)}`;
-      if (!device) return reply.code(401).send({ error: 'token inválido' });
-      await sql`update devices set last_seen_at = now() where id = ${device.id}`;
+      if (!device) return reply.code(401).send({ error: 'token inválido. Gere um novo em Ajustes › Celular' });
+      const log = (status: string, result: string) =>
+        sql`update devices set last_seen_at = now(), last_status = ${status}, last_result = ${result.slice(0, 300)}, last_payload = ${summarizeForLog(req, body)} where id = ${device.id}`.catch(() => {});
 
-      const p = normalizePayload(req);
-      if (!p.text && !p.title) return reply.code(400).send({ error: 'texto da notificação ausente' });
+      const p = normalizePayload(req, body);
+      if (!p.text && !p.title) {
+        const literal = Object.values({ ...(req.query as any), ...(body ?? {}) }).some((v) => typeof v === 'string' && /^\[.*\]$/.test(v.trim()));
+        await log('erro', literal
+          ? 'o MacroDroid enviou o código literal (ex.: "[notification]") em vez do texto: no corpo da requisição, apague e insira o campo pelo botão de Magic Text ({...})'
+          : 'texto da notificação ausente: nenhum campo "text" chegou (veja os campos recebidos abaixo)');
+        return reply.code(400).send({ error: 'texto da notificação ausente. Envie o texto no campo "text".' });
+      }
       const userId: string = device.userId;
       const text = p.text ?? p.title!;
       const receivedAt = p.timestamp && !Number.isNaN(Date.parse(p.timestamp)) ? new Date(p.timestamp) : new Date();
@@ -85,7 +122,7 @@ export default async function captureRoutes(app: FastifyInstance) {
         select id from captures where user_id = ${userId} and fingerprint = ${fingerprint}
           and received_at > ${receivedAt}::timestamptz - interval '30 minutes'
         limit 1`;
-      if (same) return { status: 'duplicada', id: same.id };
+      if (same) { await log('ok', 'duplicada (mesma notificação há menos de 30 min)'); return { status: 'duplicada', id: same.id }; }
 
       // 2) Interpretação
       let r = parseNotification({ title: p.title, text, packageName: p.packageName, appName: p.appName });
@@ -138,12 +175,26 @@ export default async function captureRoutes(app: FastifyInstance) {
             'notificacao',
           );
           await sql`update captures set status = 'confirmada', transaction_id = ${t.id} where id = ${cap.id}`;
+          await log('ok', `lançada automaticamente: ${r.kind} de R$ ${(r.amountCents! / 100).toFixed(2)}`);
           return { status: 'confirmada', id: cap.id, transactionId: t.id };
         }
       }
+      await log('ok', cap.status === 'pendente'
+        ? `na Caixa de entrada: ${r.kind} de R$ ${(r.amountCents! / 100).toFixed(2)}${r.merchant ? ' · ' + r.merchant : ''}`
+        : `descartada: ${r.discardReason}`);
       return { status: cap.status, id: cap.id, parsed: r };
     },
   );
+
+  /** Teste pelo navegador do celular: GET /api/capture?token=... */
+  app.get('/api/capture', async (req, reply) => {
+    const token = deviceToken(req, {});
+    if (!token) return reply.code(401).send({ ok: false, error: 'Abra com ?token=SEU_TOKEN para testar. O envio real é por POST.' });
+    const [device] = await sql`select name from devices where token_hash = ${sha256(token)}`;
+    if (!device) return reply.code(401).send({ ok: false, error: 'token inválido' });
+    await sql`update devices set last_seen_at = now(), last_status = 'ok', last_result = 'teste pelo navegador (GET)' where token_hash = ${sha256(token)}`;
+    return { ok: true, device: device.name, message: 'Token válido. Configure o MacroDroid para enviar POST neste endereço.' };
+  });
 
   // -------- Rotas autenticadas (app web) --------
   app.register(async (priv) => {
@@ -226,7 +277,7 @@ export default async function captureRoutes(app: FastifyInstance) {
 
     // -------- Dispositivos (tokens do webhook) --------
     priv.get('/api/devices', async (req) => {
-      return sql`select id, name, token_hint, last_seen_at, created_at from devices where user_id = ${req.userId} order by created_at`;
+      return sql`select id, name, token_hint, last_seen_at, last_status, last_result, last_payload, created_at from devices where user_id = ${req.userId} order by created_at`;
     });
 
     priv.post('/api/devices', async (req) => {

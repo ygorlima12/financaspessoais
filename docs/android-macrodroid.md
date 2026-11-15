@@ -95,6 +95,18 @@ são interpretadas por IA. Sem a chave, tudo funciona só com as regras.
 
 ## Problemas comuns
 
+Primeiro olhe em **Ajustes › Celular**: embaixo do aparelho aparece o resultado do último envio
+(✓ ou ✗ com o motivo) e, em caso de erro, "Ver o que chegou do celular" mostra os campos recebidos.
+Para testar só o token, abra no navegador do celular: `https://SEU_DOMINIO/api/capture?token=SEU_TOKEN`
+(deve responder `"ok": true`).
+
+- **"nunca enviou":** nenhuma requisição com esse token chegou. Confira a URL (tem que terminar em `/api/capture`),
+  o token (sem espaços; pode ir no cabeçalho `Authorization: Bearer ...` ou na URL como `?token=...`), se a macro está
+  ativada, se o MacroDroid tem acesso às notificações e se a otimização de bateria está desligada.
+- **"enviou o código literal [notification]":** o campo foi digitado à mão. No corpo da requisição, apague o texto e
+  insira de novo pelo botão de Magic Text (`{...}` ou `...`).
+- **"texto da notificação ausente":** o campo chegou com outro nome. Use `text` (ou `notification`, `message`, `body`).
+
 - **Nada chega:** veja em *Ajustes › Celular* se o aparelho mostra "último envio". Se nunca enviou, confira URL e token
   no MacroDroid (a resposta 401 significa token errado). Confira se a otimização de bateria está desligada.
 - **Chega mas vai para Descartadas:** veja o motivo na própria notificação. Se for um formato novo do seu banco,

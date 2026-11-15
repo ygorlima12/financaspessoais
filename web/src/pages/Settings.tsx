@@ -218,7 +218,8 @@ function Phone() {
       <div className="section-title">Endereço do webhook</div>
       <div className="card">
         <div className="token-box">{webhook}</div>
-        <div className="small muted" style={{ marginTop: 8 }}>Método POST · cabeçalho <code>Authorization: Bearer SEU_TOKEN</code> · campos: <code>package</code>, <code>app</code>, <code>title</code>, <code>text</code></div>
+        <div className="small muted" style={{ marginTop: 8 }}>Método POST · cabeçalho <code>Authorization: Bearer SEU_TOKEN</code> (ou <code>?token=</code> na URL) · campos: <code>package</code>, <code>app</code>, <code>title</code>, <code>text</code></div>
+        <div className="small muted" style={{ marginTop: 6 }}>Para testar se o token está certo, abra no navegador do celular: <code>{webhook}?token=SEU_TOKEN</code></div>
       </div>
 
       <div className="section-title">Celulares conectados</div>
@@ -226,9 +227,20 @@ function Phone() {
         {(devices.data ?? []).map((d) => (
           <div key={d.id} className="row">
             <div className="icon-dot">📱</div>
-            <div className="grow">
+            <div className="grow" style={{ minWidth: 0 }}>
               <div className="title">{d.name}</div>
-              <div className="meta">token …{d.tokenHint} · {d.lastSeenAt ? `último envio ${dateTimeLabel(d.lastSeenAt)}` : 'nunca enviou'}</div>
+              <div className="meta">token …{d.tokenHint} · {d.lastSeenAt ? `último envio ${dateTimeLabel(d.lastSeenAt)}` : 'nunca enviou (nenhuma requisição com este token chegou ao servidor)'}</div>
+              {d.lastResult && (
+                <div className="small" style={{ marginTop: 4, whiteSpace: 'normal', color: d.lastStatus === 'erro' ? 'var(--red)' : 'var(--green)' }}>
+                  {d.lastStatus === 'erro' ? '✗ ' : '✓ '}{d.lastResult}
+                </div>
+              )}
+              {d.lastPayload && d.lastStatus === 'erro' && (
+                <details className="small muted" style={{ marginTop: 4 }}>
+                  <summary>Ver o que chegou do celular</summary>
+                  <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 11, margin: '4px 0 0' }}>{(() => { try { return JSON.stringify(JSON.parse(d.lastPayload), null, 1) } catch { return d.lastPayload } })()}</pre>
+                </details>
+              )}
             </div>
             <button className="link-btn" style={{ color: 'var(--red)' }}
               onClick={() => confirm('Revogar este token? O celular para de enviar.') && api(`/devices/${d.id}`, { method: 'DELETE' }).then(devices.reload)}>Revogar</button>
