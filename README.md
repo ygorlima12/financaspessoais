@@ -24,6 +24,10 @@ reserva de emergência e metas — com **captura automática das notificações 
   Cada compra tem a marcação "guardado"; o que não foi guardado aparece em laranja no Cartão e no Início. Configurando
   "guardar de" e "guardar em" (ex.: Nubank → Poupança), marcar registra a transferência, e o pagamento da fatura já sugere
   sair da poupança.
+- **Posso gastar?** (botão no Início e no Cartão): você informa quanto, para quê, o motivo, se é necessidade ou desejo e
+  como vai pagar. O app monta o retrato do momento (saldos, contas não pagas, cartão, reserva, metas, orçamento) e responde
+  **pode / com cuidado / melhor não**, com os números. Com uma chave da API da Anthropic (Ajustes › Perfil), a Claude
+  escreve a análise e sugere alternativas; sem chave, valem só as regras.
 - **Ajustes:** contas e cartões, categorias com limite mensal, tokens do celular, exportação CSV.
 - Funciona como app no celular (PWA: "Adicionar à tela inicial"), com tema claro/escuro automático.
 
