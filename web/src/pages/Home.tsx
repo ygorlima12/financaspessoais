@@ -199,13 +199,13 @@ export default function Home() {
       <div className="section-title">Contas <Link to="/ajustes?tab=contas">Gerenciar</Link></div>
       <div className="list">
         {d.accounts.map((a: any) => (
-          <Link key={a.id} to={`/lancamentos?conta=${a.id}`} className="row" style={{ color: 'inherit' }}>
+          <Link key={a.id} to={a.type === 'cartao' ? '/cartao' : `/lancamentos?conta=${a.id}`} className="row" style={{ color: 'inherit' }}>
             <div className="icon-dot" style={{ background: a.color, color: '#fff', fontSize: 14, fontWeight: 700 }}>{a.name.slice(0, 1)}</div>
             <div className="grow">
               <div className="title">{a.name}</div>
-              <div className="meta">{a.isReserve ? 'Reserva de emergência' : a.bank || ''}</div>
+              <div className="meta">{a.type === 'cartao' ? 'fatura em aberto' : a.isReserve ? 'Reserva de emergência' : a.bank || ''}</div>
             </div>
-            <div className={`end num ${a.balanceCents < 0 ? 'neg' : ''}`}>{money(a.balanceCents)}</div>
+            <div className={`end num ${a.balanceCents < 0 ? 'neg' : ''}`}>{a.type === 'cartao' ? money(-a.balanceCents) : money(a.balanceCents)}</div>
           </Link>
         ))}
       </div>

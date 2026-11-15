@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import Home from './pages/Home'
 import Transactions from './pages/Transactions'
 import Bills from './pages/Bills'
+import Cards from './pages/Cards'
 import Inbox from './pages/Inbox'
 import Growth from './pages/Growth'
 import Settings from './pages/Settings'
@@ -24,6 +25,7 @@ function TabBar() {
       <div className="brand"><div className="brand-logo">↗</div>Meu Rumo</div>
       <NavLink to="/" end>{Icons.home}<span>Início</span></NavLink>
       <NavLink to="/contas">{Icons.bills}<span>Contas</span></NavLink>
+      <NavLink to="/cartao">{Icons.card}<span>Cartão</span></NavLink>
       <NavLink to="/lancamentos">{Icons.list}<span>Extrato</span></NavLink>
       <NavLink to="/entrada">{Icons.inbox}<span>Caixa</span>{n > 0 && <span className="badge">{n > 99 ? '99+' : n}</span>}</NavLink>
       <NavLink to="/crescer">{Icons.growth}<span>Crescer</span></NavLink>
@@ -55,6 +57,7 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/lancamentos" element={<Transactions />} />
               <Route path="/contas" element={<Bills />} />
+              <Route path="/cartao" element={<Cards />} />
               <Route path="/entrada" element={<Inbox />} />
               <Route path="/crescer" element={<Growth />} />
               <Route path="/ajustes" element={<Settings onLogout={() => setUser(null)} />} />

@@ -52,6 +52,14 @@ export function TransactionSheet({
     })
 
   const color = v.kind === 'receita' ? 'var(--green)' : v.kind === 'despesa' ? 'var(--red)' : 'var(--blue)'
+  const acc = accounts.find((a) => a.id === v.accountId)
+  const dest = accounts.find((a) => a.id === v.transferAccountId)
+  const cardHint =
+    acc?.type === 'cartao' && v.kind === 'despesa' ? `Compra no ${acc.name}: entra na fatura e já conta como gasto.`
+    : acc?.type === 'cartao' && v.kind === 'receita' ? `Entrada no ${acc.name} = estorno ou crédito na fatura (não é receita sua).`
+    : dest?.type === 'cartao' && v.kind === 'transferencia' ? `Isso é um pagamento de fatura do ${dest.name}. Não conta como gasto.`
+    : acc?.type === 'cartao' && v.kind === 'transferencia' ? 'Transferência saindo do cartão é incomum. Para pagar a fatura, a origem é a conta corrente e o destino é o cartão.'
+    : null
 
   return (
     <Sheet
@@ -103,6 +111,7 @@ export function TransactionSheet({
           </Field>
         )}
       </div>
+      {cardHint && <div className="info-box small">💳 {cardHint}</div>}
       <Field label="Data e hora">
         <input className="input" type="datetime-local" value={v.occurredAt} onChange={(e) => set({ occurredAt: e.target.value })} />
       </Field>

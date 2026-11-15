@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { useData, type Account, type Category } from '../data'
 import { ACCOUNT_TYPES, dateTimeLabel, money } from '../format'
@@ -44,7 +44,7 @@ function Accounts() {
   const archived = (all.data ?? []).filter((a) => a.archived)
   return (
     <>
-      <div className="info-box small">Cadastre cada conta e cartão. Cartão de crédito fica negativo conforme você gasta; ao pagar a fatura, lance uma <b>transferência</b> da conta corrente para o cartão.</div>
+      <div className="info-box small">Cadastre cada conta e cartão. O cartão de crédito tem sua própria aba <Link to="/cartao">Cartão</Link>, com a fatura e o botão de pagar.</div>
       <div className="section-title">Contas e cartões <button className="link-btn" onClick={() => setEdit('new')}>+ Nova</button></div>
       <div className="list">
         {active.map((a) => <AccountRow key={a.id} a={a} onClick={() => setEdit(a)} />)}
@@ -78,11 +78,13 @@ function AccountForm({ acc, onClose }: { acc: Account | null; onClose: () => voi
   const [v, setV] = useState({
     name: acc?.name ?? '', type: acc?.type ?? 'corrente', bank: acc?.bank ?? '', initialBalanceCents: acc?.initialBalanceCents ?? 0,
     color: acc?.color ?? '#0a84ff', isReserve: acc?.isReserve ?? false, archived: acc?.archived ?? false,
+    closingDay: String(acc?.closingDay ?? ''), dueDay: String(acc?.dueDay ?? ''), limitCents: (acc?.limitCents ?? null) as number | null,
   })
   const { busy, error, run } = useSubmit()
   const save = () => run(async () => {
-    if (acc) await api(`/accounts/${acc.id}`, { method: 'PATCH', body: v })
-    else await api('/accounts', { body: v })
+    const body = { ...v, closingDay: v.type === 'cartao' && v.closingDay ? Number(v.closingDay) : null, dueDay: v.type === 'cartao' && v.dueDay ? Number(v.dueDay) : null, limitCents: v.type === 'cartao' ? v.limitCents : null }
+    if (acc) await api(`/accounts/${acc.id}`, { method: 'PATCH', body })
+    else await api('/accounts', { body })
     notifyChanged(); onClose()
   })
   return (
@@ -99,6 +101,26 @@ function AccountForm({ acc, onClose }: { acc: Account | null; onClose: () => voi
       <Field label={v.type === 'cartao' ? 'Fatura em aberto hoje (use valor negativo)' : 'Saldo inicial'}>
         <MoneyField cents={v.initialBalanceCents} allowNegative onChange={(c) => setV({ ...v, initialBalanceCents: c ?? 0 })} />
       </Field>
+      {v.type === 'cartao' && (
+        <>
+          <div className="row-fields">
+            <Field label="Fecha todo dia">
+              <select className="input" value={v.closingDay} onChange={(e) => setV({ ...v, closingDay: e.target.value })}>
+                <option value="">—</option>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </Field>
+            <Field label="Vence todo dia">
+              <select className="input" value={v.dueDay} onChange={(e) => setV({ ...v, dueDay: e.target.value })}>
+                <option value="">—</option>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </Field>
+          </div>
+          <Field label="Limite do cartão (opcional)"><MoneyField cents={v.limitCents} onChange={(c) => setV({ ...v, limitCents: c })} /></Field>
+          <div className="small muted" style={{ marginTop: -8, marginBottom: 14, padding: '0 4px' }}>Veja no app do banco: a fatura fecha num dia e vence alguns dias depois (ex.: fecha dia 3, vence dia 10).</div>
+        </>
+      )}
       <div className="field"><span>Cor</span></div>
       <ColorPicker value={v.color} onChange={(color) => setV({ ...v, color })} />
       <div className="check"><span>Faz parte da reserva de emergência</span><Switch checked={v.isReserve} onChange={(isReserve) => setV({ ...v, isReserve })} /></div>

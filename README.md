@@ -14,6 +14,9 @@ reserva de emergência e metas — com **captura automática das notificações 
   Marcar como paga cria o lançamento; se a notificação do banco já virou lançamento, o app sugere o vínculo.
   A análise compara as fixas com a renda: acima de **40%** (ajustável) ela lista o que cortar, começando pelo supérfluo,
   mostra variáveis acima do previsto, parcelas que terminam em breve e uma leitura 50/30/20.
+- **Cartão:** aba própria do cartão de crédito, com a fatura calculada pelo ciclo (dia de fechamento e vencimento),
+  status (em aberto, fechada, paga, vencida), limite usado, botão **Pagar fatura** e a explicação do que é entrada,
+  saída e transferência no cartão.
 - **Ajustes:** contas e cartões, categorias com limite mensal, tokens do celular, exportação CSV.
 - Funciona como app no celular (PWA: "Adicionar à tela inicial"), com tema claro/escuro automático.
 
@@ -105,8 +108,10 @@ Passo a passo em **[docs/android-macrodroid.md](docs/android-macrodroid.md)**. R
 ## Como os números são calculados
 
 - **Saldo da conta** = saldo inicial + entradas + resgates − saídas − aportes ± transferências.
-- **Cartão de crédito** é uma conta que fica negativa conforme você gasta. Pagar a fatura = **transferência** da conta
-  corrente para o cartão (assim a compra não conta duas vezes).
+- **Cartão de crédito** é uma conta que fica negativa conforme você gasta. Compra = saída com "sai de: Cartão";
+  pagar a fatura = **transferência** da conta corrente para o cartão (assim a compra não conta duas vezes);
+  entrada no cartão = estorno/crédito. A fatura que vence no mês M reúne as compras entre o fechamento anterior e o
+  fechamento do ciclo; pagamentos feitos entre esse fechamento e o seguinte abatem dela.
 - **Patrimônio** = soma de todas as contas + valor atual dos investimentos.
 - **Investimento:** valor = aportes − resgates + rendimentos. "Atualizar valor" grava a diferença como rendimento.
   Aporte com conta de origem tira o dinheiro da conta (não conta como gasto).

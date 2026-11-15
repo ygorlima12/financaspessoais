@@ -14,6 +14,9 @@ const accountBody = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#0a84ff'),
   isReserve: z.boolean().default(false),
   archived: z.boolean().optional(),
+  closingDay: z.coerce.number().int().min(1).max(31).nullish(),
+  dueDay: z.coerce.number().int().min(1).max(31).nullish(),
+  limitCents: z.coerce.number().int().positive().nullish(),
 });
 
 export default async function accountRoutes(app: FastifyInstance) {
@@ -27,8 +30,9 @@ export default async function accountRoutes(app: FastifyInstance) {
   app.post('/api/accounts', async (req) => {
     const b = parse(accountBody, req.body);
     const [a] = await sql`
-      insert into accounts (user_id, name, type, bank, initial_balance_cents, color, is_reserve)
-      values (${req.userId}, ${b.name}, ${b.type}, ${b.bank ?? null}, ${b.initialBalanceCents}, ${b.color}, ${b.isReserve})
+      insert into accounts (user_id, name, type, bank, initial_balance_cents, color, is_reserve, closing_day, due_day, limit_cents)
+      values (${req.userId}, ${b.name}, ${b.type}, ${b.bank ?? null}, ${b.initialBalanceCents}, ${b.color}, ${b.isReserve},
+              ${b.closingDay ?? null}, ${b.dueDay ?? null}, ${b.limitCents ?? null})
       returning *`;
     return a;
   });
@@ -36,7 +40,7 @@ export default async function accountRoutes(app: FastifyInstance) {
   app.patch('/api/accounts/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
     const fields: Record<string, unknown> = onlySent(parse(accountBody.partial(), req.body), req.body);
-    if ('bank' in fields) fields.bank = fields.bank ?? null;
+    for (const k of ['bank', 'closingDay', 'dueDay', 'limitCents']) if (k in fields) fields[k] = fields[k] || null;
     if (!Object.keys(fields).length) throw new HttpError(400, 'Nada para atualizar.');
     const [a] = await sql`update accounts set ${sql(fields)} where id = ${id} and user_id = ${req.userId} returning *`;
     if (!a) throw new HttpError(404, 'Conta não encontrada.');

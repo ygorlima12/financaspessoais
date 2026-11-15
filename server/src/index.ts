@@ -18,6 +18,7 @@ import captureRoutes from './routes/captures.js';
 import investmentRoutes from './routes/investments.js';
 import planningRoutes from './routes/planning.js';
 import billRoutes from './routes/bills.js';
+import cardRoutes from './routes/cards.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -65,6 +66,7 @@ export async function buildApp() {
   await app.register(investmentRoutes);
   await app.register(planningRoutes);
   await app.register(billRoutes);
+  await app.register(cardRoutes);
 
   // Frontend (build do Vite) servido pelo mesmo processo
   if (existsSync(config.webDist)) {
