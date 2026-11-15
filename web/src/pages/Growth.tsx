@@ -5,9 +5,10 @@ import { api } from '../api'
 import { useData } from '../data'
 import { INVESTMENT_COLORS, INVESTMENT_TYPES, dayLabel, fromLocalInput, money, pct, signedMoney, toLocalInput } from '../format'
 import { notifyChanged, useApi } from '../hooks'
+import Wishes from './Wishes'
 import { Empty, ErrorBox, Field, MoneyField, Progress, Segmented, Sheet, Spinner, Switch, useSubmit } from '../components/ui'
 
-type Tab = 'investimentos' | 'reserva' | 'metas'
+type Tab = 'investimentos' | 'reserva' | 'metas' | 'sonhos'
 
 export default function Growth() {
   const [params, setParams] = useSearchParams()
@@ -17,14 +18,15 @@ export default function Growth() {
       <div className="page-head">
         <div>
           <h1>Crescer</h1>
-          <div className="sub">Investimentos, reserva e metas</div>
+          <div className="sub">Investimentos, reserva, metas e sonhos</div>
         </div>
       </div>
       <Segmented<Tab> value={tab} onChange={(t) => setParams({ tab: t })}
-        options={[['investimentos', 'Investimentos'], ['reserva', 'Reserva'], ['metas', 'Metas']]} />
+        options={[['investimentos', 'Investir'], ['reserva', 'Reserva'], ['metas', 'Metas'], ['sonhos', 'Sonhos']]} />
       {tab === 'investimentos' && <Investments />}
       {tab === 'reserva' && <Reserve />}
       {tab === 'metas' && <Goals />}
+      {tab === 'sonhos' && <Wishes />}
     </>
   )
 }

@@ -17,6 +17,9 @@ reserva de emergência e metas — com **captura automática das notificações 
 - **Cartão:** aba própria do cartão de crédito, com a fatura calculada pelo ciclo (dia de fechamento e vencimento),
   status (em aberto, fechada, paga, vencida), limite usado, botão **Pagar fatura** e a explicação do que é entrada,
   saída e transferência no cartão.
+- **Sonhos** (em Crescer): produtos que você quer comprar, com link, preço e imagem (o app tenta ler título, preço e
+  foto do link), ordenados por prioridade. Cada sonho pode virar uma meta com uma caixinha/investimento vinculado, e a
+  fila mostra em que mês cada um fica ao alcance com o valor que você guarda por mês. "Comprei" lança a saída.
 - **Ajustes:** contas e cartões, categorias com limite mensal, tokens do celular, exportação CSV.
 - Funciona como app no celular (PWA: "Adicionar à tela inicial"), com tema claro/escuro automático.
 
