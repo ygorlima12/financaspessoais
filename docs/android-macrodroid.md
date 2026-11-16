@@ -21,6 +21,7 @@ https://financas.seudominio.com.br/api/capture
 1. Instale o **MacroDroid**.
 2. Dê ao MacroDroid **acesso às notificações** (ele pede na primeira vez que você cria o gatilho; se não pedir:
    Configurações do Android › Apps › Acesso especial › Acesso a notificações › MacroDroid).
+   **Se o gatilho aparecer em vermelho com ⚠️ na lista de macros, é isso que está faltando.**
 3. **Desative a otimização de bateria** para o MacroDroid (Configurações › Apps › MacroDroid › Bateria › Sem restrições).
    Sem isso, o Android pode "matar" o app e você perde notificações.
 4. Nos apps dos bancos, confira se as **notificações de compra/Pix estão ligadas**.
@@ -40,12 +41,12 @@ https://financas.seudominio.com.br/api/capture
 - Corpo (Body), tipo **application/json**, conteúdo:
 
 ```json
-{"package":"[notification_app_package]","app":"[app_name]","title":"[notification_title]","text":"[notification]"}
+{"package":"{not_app_package}","app":"{not_app_name}","title":"{not_title}","text":"{notification}"}
 ```
 
-Os itens entre colchetes são *Magic Text* do MacroDroid. **Não digite à mão:** toque no botão de Magic Text (`...`)
-e escolha *Texto da notificação*, *Título da notificação*, *Nome do app* e *Pacote do app* — assim o MacroDroid
-coloca o código certo da sua versão. Se algum não existir, pode tirar; o único obrigatório é o **texto**.
+Os itens entre chaves são *Magic Text* do MacroDroid (versões atuais usam `{...}`; as antigas usavam `[...]`).
+Se preferir, toque no botão `...` ao lado do campo e escolha *Texto da notificação*, *Título da notificação*,
+*Nome do app* e *Pacote do app*. Se algum não existir na sua versão, pode tirar; o único obrigatório é o **texto**.
 
 > Aspas dentro do texto da notificação às vezes quebram o JSON. O servidor foi feito para recuperar esses casos,
 > então não precisa se preocupar.
@@ -98,12 +99,15 @@ são interpretadas por IA. Sem a chave, tudo funciona só com as regras.
 Primeiro olhe em **Ajustes › Celular**: embaixo do aparelho aparece o resultado do último envio
 (✓ ou ✗ com o motivo) e, em caso de erro, "Ver o que chegou do celular" mostra os campos recebidos.
 Para testar só o token, abra no navegador do celular: `https://SEU_DOMINIO/api/capture?token=SEU_TOKEN`
-(deve responder `"ok": true`).
+(deve responder `"ok": true`). Para ver a resposta do servidor no próprio celular, na ação HTTP marque
+"Salvar resposta HTTP em uma variável string" (ex.: `resposta`) e adicione uma ação *Mostrar notificação* com `{lv=resposta}`.
+O botão "Testar ações" do MacroDroid envia `{notification}` vazio, então a resposta será "texto da notificação ausente":
+normal no teste manual.
 
 - **"nunca enviou":** nenhuma requisição com esse token chegou. Confira a URL (tem que terminar em `/api/capture`),
   o token (sem espaços; pode ir no cabeçalho `Authorization: Bearer ...` ou na URL como `?token=...`), se a macro está
   ativada, se o MacroDroid tem acesso às notificações e se a otimização de bateria está desligada.
-- **"enviou o código literal [notification]":** o campo foi digitado à mão. No corpo da requisição, apague o texto e
+- **"enviou o código literal {notification}":** o campo foi digitado à mão. No corpo da requisição, apague o texto e
   insira de novo pelo botão de Magic Text (`{...}` ou `...`).
 - **"texto da notificação ausente":** o campo chegou com outro nome. Use `text` (ou `notification`, `message`, `body`).
 
