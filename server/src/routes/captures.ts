@@ -90,6 +90,84 @@ function normalizePayload(req: FastifyRequest, body: any) {
   };
 }
 
+
+type Ingest = { packageName?: string; appName?: string; title?: string; text?: string; timestamp?: string };
+
+/** Processa uma notificação (vinda do celular ou colada à mão): dedupe, interpretação, caixa de entrada, confirmação automática. */
+async function ingestNotification(userId: string, deviceId: string | null, p: Ingest, log: (status: string, result: string) => Promise<unknown>) {
+  const text = p.text ?? p.title!;
+  const receivedAt = p.timestamp && !Number.isNaN(Date.parse(p.timestamp)) ? new Date(p.timestamp) : new Date();
+  if (Math.abs(receivedAt.getTime() - Date.now()) > 7 * 864e5) receivedAt.setTime(Date.now());
+
+  // 1) Duplicata exata (Android costuma repostar a mesma notificação)
+  const fingerprint = sha256(`${p.packageName ?? ''}|${fold(`${p.title ?? ''} ${text}`).replace(/\s+/g, ' ').trim()}`);
+  const [same] = await sql`
+    select id from captures where user_id = ${userId} and fingerprint = ${fingerprint}
+      and received_at > ${receivedAt}::timestamptz - interval '30 minutes'
+    limit 1`;
+  if (same) { await log('ok', 'duplicada (mesma notificação há menos de 30 min)'); return { status: 'duplicada', id: same.id }; }
+
+  // 2) Interpretação
+  let r = parseNotification({ title: p.title, text, packageName: p.packageName, appName: p.appName });
+  if (!r.isTransaction && r.discardReason === 'tipo (entrada/saída) não identificado') {
+    const ai = await aiParse(userId, `${p.title ?? ''}\n${text}`, r.bank);
+    if (ai) r = { ...r, ...ai };
+  }
+
+  // 3) Possível duplicata vinda de outro app/canal (mesmo valor e tipo em poucos minutos)
+  let duplicateOf: string | null = null;
+  if (r.isTransaction) {
+    const [near] = await sql`
+      select id from captures where user_id = ${userId} and amount_cents = ${r.amountCents} and kind = ${r.kind}
+        and status in ('pendente','confirmada') and fingerprint <> ${fingerprint}
+        and received_at between ${receivedAt}::timestamptz - interval '5 minutes' and ${receivedAt}::timestamptz + interval '5 minutes'
+      limit 1`;
+    duplicateOf = near?.id ?? null;
+  }
+
+  const [cap] = await sql`
+    insert into captures (user_id, device_id, package_name, app_name, title, text, received_at, amount_cents, kind,
+                          merchant, bank, channel, confidence, status, discard_reason, duplicate_of, fingerprint)
+    values (${userId}, ${deviceId}, ${p.packageName ?? null}, ${p.appName ?? null}, ${p.title ?? null}, ${text},
+            ${receivedAt.toISOString()}, ${r.amountCents}, ${r.kind}, ${r.merchant}, ${r.bank}, ${r.channel}, ${r.confidence},
+            ${r.isTransaction ? 'pendente' : 'descartada'}, ${r.isTransaction ? r.hint ?? null : r.discardReason ?? null},
+            ${duplicateOf}, ${fingerprint})
+    returning id, status`;
+
+  // Limpeza: descartadas com mais de 30 dias
+  sql`delete from captures where user_id = ${userId} and status = 'descartada' and received_at < now() - interval '30 days'`.catch(() => {});
+
+  // 4) Confirmação automática (opcional)
+  if (r.isTransaction && r.confidence === 'alta' && !duplicateOf && p.packageName) {
+    const settings = await getSettings(userId);
+    const [link] = await sql`select account_id, auto_confirm from app_links
+      where user_id = ${userId} and package_name = ${p.packageName} and channel = ${r.channel}`;
+    if (link?.accountId && (link.autoConfirm || settings.autoConfirmCaptures)) {
+      const categoryId = await suggestCategory(userId, r.merchant);
+      const t = await insertTx(
+        userId,
+        {
+          accountId: link.accountId,
+          categoryId,
+          kind: r.kind!,
+          amountCents: r.amountCents!,
+          description: r.merchant ?? (r.kind === 'receita' ? 'Entrada' : 'Saída'),
+          occurredAt: receivedAt.toISOString(),
+          notes: null,
+        },
+        'notificacao',
+      );
+      await sql`update captures set status = 'confirmada', transaction_id = ${t.id} where id = ${cap.id}`;
+      await log('ok', `lançada automaticamente: ${r.kind} de R$ ${(r.amountCents! / 100).toFixed(2)}`);
+      return { status: 'confirmada', id: cap.id, transactionId: t.id };
+    }
+  }
+  await log('ok', cap.status === 'pendente'
+    ? `na Caixa de entrada: ${r.kind} de R$ ${(r.amountCents! / 100).toFixed(2)}${r.merchant ? ' · ' + r.merchant : ''}`
+    : `descartada: ${r.discardReason}`);
+  return { status: cap.status, id: cap.id, parsed: r };
+}
+
 export default async function captureRoutes(app: FastifyInstance) {
   // -------- Webhook público chamado pelo celular --------
   app.post(
@@ -112,78 +190,7 @@ export default async function captureRoutes(app: FastifyInstance) {
           : 'texto da notificação ausente: nenhum campo "text" chegou (veja os campos recebidos abaixo)');
         return reply.code(400).send({ error: 'texto da notificação ausente. Envie o texto no campo "text".' });
       }
-      const userId: string = device.userId;
-      const text = p.text ?? p.title!;
-      const receivedAt = p.timestamp && !Number.isNaN(Date.parse(p.timestamp)) ? new Date(p.timestamp) : new Date();
-      if (Math.abs(receivedAt.getTime() - Date.now()) > 7 * 864e5) receivedAt.setTime(Date.now());
-
-      // 1) Duplicata exata (Android costuma repostar a mesma notificação)
-      const fingerprint = sha256(`${p.packageName ?? ''}|${fold(`${p.title ?? ''} ${text}`).replace(/\s+/g, ' ').trim()}`);
-      const [same] = await sql`
-        select id from captures where user_id = ${userId} and fingerprint = ${fingerprint}
-          and received_at > ${receivedAt}::timestamptz - interval '30 minutes'
-        limit 1`;
-      if (same) { await log('ok', 'duplicada (mesma notificação há menos de 30 min)'); return { status: 'duplicada', id: same.id }; }
-
-      // 2) Interpretação
-      let r = parseNotification({ title: p.title, text, packageName: p.packageName, appName: p.appName });
-      if (!r.isTransaction && r.discardReason === 'tipo (entrada/saída) não identificado') {
-        const ai = await aiParse(userId, `${p.title ?? ''}\n${text}`, r.bank);
-        if (ai) r = { ...r, ...ai };
-      }
-
-      // 3) Possível duplicata vinda de outro app/canal (mesmo valor e tipo em poucos minutos)
-      let duplicateOf: string | null = null;
-      if (r.isTransaction) {
-        const [near] = await sql`
-          select id from captures where user_id = ${userId} and amount_cents = ${r.amountCents} and kind = ${r.kind}
-            and status in ('pendente','confirmada') and fingerprint <> ${fingerprint}
-            and received_at between ${receivedAt}::timestamptz - interval '5 minutes' and ${receivedAt}::timestamptz + interval '5 minutes'
-          limit 1`;
-        duplicateOf = near?.id ?? null;
-      }
-
-      const [cap] = await sql`
-        insert into captures (user_id, device_id, package_name, app_name, title, text, received_at, amount_cents, kind,
-                              merchant, bank, channel, confidence, status, discard_reason, duplicate_of, fingerprint)
-        values (${userId}, ${device.id}, ${p.packageName ?? null}, ${p.appName ?? null}, ${p.title ?? null}, ${text},
-                ${receivedAt.toISOString()}, ${r.amountCents}, ${r.kind}, ${r.merchant}, ${r.bank}, ${r.channel}, ${r.confidence},
-                ${r.isTransaction ? 'pendente' : 'descartada'}, ${r.isTransaction ? r.hint ?? null : r.discardReason ?? null},
-                ${duplicateOf}, ${fingerprint})
-        returning id, status`;
-
-      // Limpeza: descartadas com mais de 30 dias
-      sql`delete from captures where user_id = ${userId} and status = 'descartada' and received_at < now() - interval '30 days'`.catch(() => {});
-
-      // 4) Confirmação automática (opcional)
-      if (r.isTransaction && r.confidence === 'alta' && !duplicateOf && p.packageName) {
-        const settings = await getSettings(userId);
-        const [link] = await sql`select account_id, auto_confirm from app_links
-          where user_id = ${userId} and package_name = ${p.packageName} and channel = ${r.channel}`;
-        if (link?.accountId && (link.autoConfirm || settings.autoConfirmCaptures)) {
-          const categoryId = await suggestCategory(userId, r.merchant);
-          const t = await insertTx(
-            userId,
-            {
-              accountId: link.accountId,
-              categoryId,
-              kind: r.kind!,
-              amountCents: r.amountCents!,
-              description: r.merchant ?? (r.kind === 'receita' ? 'Entrada' : 'Saída'),
-              occurredAt: receivedAt.toISOString(),
-              notes: null,
-            },
-            'notificacao',
-          );
-          await sql`update captures set status = 'confirmada', transaction_id = ${t.id} where id = ${cap.id}`;
-          await log('ok', `lançada automaticamente: ${r.kind} de R$ ${(r.amountCents! / 100).toFixed(2)}`);
-          return { status: 'confirmada', id: cap.id, transactionId: t.id };
-        }
-      }
-      await log('ok', cap.status === 'pendente'
-        ? `na Caixa de entrada: ${r.kind} de R$ ${(r.amountCents! / 100).toFixed(2)}${r.merchant ? ' · ' + r.merchant : ''}`
-        : `descartada: ${r.discardReason}`);
-      return { status: cap.status, id: cap.id, parsed: r };
+      return ingestNotification(device.userId, device.id, p, log);
     },
   );
 
@@ -213,6 +220,14 @@ export default async function captureRoutes(app: FastifyInstance) {
       return Promise.all(
         rows.map(async (c: any) => ({ ...c, suggestedCategoryId: await suggestCategory(req.userId, c.merchant) })),
       );
+    });
+
+    /** Cola uma notificação à mão (ex.: do histórico de notificações do Android) */
+    priv.post('/api/captures/manual', async (req) => {
+      const b = parse(z.object({ text: z.string().trim().min(3).max(2000), title: z.string().trim().max(200).optional(), appName: z.string().trim().max(80).optional(), occurredAt: zDateTime.optional() }), req.body);
+      const r = await ingestNotification(req.userId, null, { text: b.text, title: b.title, appName: b.appName, packageName: b.appName, timestamp: b.occurredAt }, async () => {});
+      if (r.status === 'duplicada') throw new HttpError(409, 'Essa notificação já está na Caixa de entrada.');
+      return r;
     });
 
     /** Testa o leitor sem gravar nada */

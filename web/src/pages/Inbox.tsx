@@ -4,7 +4,8 @@ import { api } from '../api'
 import { useData } from '../data'
 import { dateTimeLabel, money } from '../format'
 import { notifyChanged, useApi } from '../hooks'
-import { Empty, Segmented, Spinner, Switch } from '../components/ui'
+import { Empty, ErrorBox, Field, Segmented, Sheet, Spinner, Switch, useSubmit } from '../components/ui'
+import { toLocalInput, fromLocalInput } from '../format'
 import { TransactionSheet } from '../components/TransactionForm'
 
 type Capture = {
@@ -22,6 +23,7 @@ export default function Inbox() {
   const [open, setOpen] = useState<Capture | null>(null)
   const [remember, setRemember] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [paste, setPaste] = useState(false)
 
   const act = async (id: string, fn: () => Promise<unknown>) => {
     setBusyId(id)
@@ -43,7 +45,9 @@ export default function Inbox() {
           <h1>Caixa de entrada</h1>
           <div className="sub">Notificações do banco capturadas no celular</div>
         </div>
+        <button className="btn sm secondary" onClick={() => setPaste(true)}>📋 Colar</button>
       </div>
+      {paste && <PasteSheet onClose={() => { setPaste(false); reload() }} />}
       <Segmented<Status> value={status} onChange={setStatus}
         options={[['pendente', 'Revisar'], ['confirmada', 'Lançadas'], ['ignorada', 'Ignoradas'], ['descartada', 'Descartadas']]} />
 
@@ -153,5 +157,48 @@ export default function Inbox() {
         />
       )}
     </>
+  )
+}
+
+/** Cola o texto de uma notificação (ex.: do histórico de notificações do Android) */
+function PasteSheet({ onClose }: { onClose: () => void }) {
+  const [text, setText] = useState('')
+  const [appName, setAppName] = useState('')
+  const [when, setWhen] = useState(toLocalInput())
+  const [done, setDone] = useState<any>(null)
+  const { busy, error, run } = useSubmit()
+  const send = () => run(async () => {
+    if (text.trim().length < 3) throw new Error('Cole o texto da notificação.')
+    const r = await api('/captures/manual', { body: { text: text.trim(), appName: appName.trim() || undefined, occurredAt: fromLocalInput(when) } })
+    setDone(r); notifyChanged()
+  })
+  return (
+    <Sheet title="Colar notificação" onClose={onClose}>
+      {!done ? (
+        <>
+          <div className="info-box small">Perdeu uma notificação? No Android, abra <b>Configurações › Notificações › Configurações avançadas › Histórico de notificações</b>, toque na notificação do banco, copie o texto e cole aqui. Ela entra na Caixa como se tivesse chegado pelo celular.</div>
+          <Field label="Texto da notificação"><textarea className="input" rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Ex.: Compra de R$ 45,90 APROVADA em PADARIA para o cartão com final 1234." autoFocus /></Field>
+          <div className="row-fields">
+            <Field label="Banco / app (opcional)"><input className="input" value={appName} placeholder="Ex.: Nubank" onChange={(e) => setAppName(e.target.value)} /></Field>
+            <Field label="Quando aconteceu"><input className="input" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></Field>
+          </div>
+          <ErrorBox error={error} />
+          <button className="btn block" disabled={busy} onClick={send}>Enviar para a Caixa</button>
+        </>
+      ) : (
+        <>
+          <div className={done.status === 'pendente' ? 'info-box' : 'warn-box'}>
+            {done.status === 'pendente'
+              ? <>✓ Entendido: <b>{done.parsed?.kind === 'receita' ? 'entrada' : 'saída'} de {money(done.parsed?.amountCents)}</b>{done.parsed?.merchant ? ` · ${done.parsed.merchant}` : ''}. Está na aba Revisar.</>
+              : done.status === 'confirmada' ? '✓ Lançada automaticamente.'
+              : <>Não virou lançamento: {done.parsed?.discardReason}. Está em “Descartadas”; se estiver errado, toque em Recuperar lá.</>}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn secondary" style={{ flex: 1 }} onClick={() => { setDone(null); setText('') }}>Colar outra</button>
+            <button className="btn" style={{ flex: 1 }} onClick={onClose}>Fechar</button>
+          </div>
+        </>
+      )}
+    </Sheet>
   )
 }

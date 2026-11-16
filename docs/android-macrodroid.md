@@ -94,6 +94,12 @@ entendidas com segurança sejam lançadas sem passar pela Caixa de entrada. Reco
 **IA (opcional):** se você colocar `ANTHROPIC_API_KEY` no `.env`, notificações em formatos que as regras não entendem
 são interpretadas por IA. Sem a chave, tudo funciona só com as regras.
 
+## Perdeu notificações?
+
+O MacroDroid não guarda as antigas, mas o Android guarda por 24 horas: **Configurações › Notificações › Configurações
+avançadas › Histórico de notificações**. Copie o texto da notificação do banco e use **Caixa › 📋 Colar** no sistema:
+ela entra no mesmo fluxo da captura automática. Para algo mais antigo, lance direto no Extrato.
+
 ## Problemas comuns
 
 Primeiro olhe em **Ajustes › Celular**: embaixo do aparelho aparece o resultado do último envio
@@ -109,6 +115,9 @@ normal no teste manual.
   ativada, se o MacroDroid tem acesso às notificações e se a otimização de bateria está desligada.
 - **"enviou o código literal {notification}":** o campo foi digitado à mão. No corpo da requisição, apague o texto e
   insira de novo pelo botão de Magic Text (`{...}` ou `...`).
+- **"HTTP Request failed … Unexpected char 0x0a … in header name: Authorization"** (no log do MacroDroid): o nome do
+  cabeçalho foi salvo com uma quebra de linha. Apague o cabeçalho e, em vez dele, use o parâmetro de query `token`
+  com o seu token (ou redigite o cabeçalho sem apertar Enter).
 - **"texto da notificação ausente":** o campo chegou com outro nome. Use `text` (ou `notification`, `message`, `body`).
 
 - **Nada chega:** veja em *Ajustes › Celular* se o aparelho mostra "último envio". Se nunca enviou, confira URL e token
