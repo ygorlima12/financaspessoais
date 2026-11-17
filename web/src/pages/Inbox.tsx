@@ -13,6 +13,7 @@ type Capture = {
   amountCents: number | null; kind: 'receita' | 'despesa' | null; merchant: string | null; bank: string | null; channel: 'conta' | 'cartao'
   confidence: 'alta' | 'media' | 'baixa' | null; status: string; discardReason: string | null; duplicateOf: string | null
   linkedAccountId: string | null; suggestedCategoryId: string | null; transactionDescription: string | null
+  suggestedBillId?: string | null; openBills?: { id: string; name: string; amountCents: number; dueDate: string; categoryId: string | null; accountId: string | null; nature: string }[]
 }
 type Status = 'pendente' | 'confirmada' | 'ignorada' | 'descartada'
 
@@ -22,6 +23,7 @@ export default function Inbox() {
   const { accounts, categories } = useData()
   const [open, setOpen] = useState<Capture | null>(null)
   const [remember, setRemember] = useState(true)
+  const [billId, setBillId] = useState<string>('')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [paste, setPaste] = useState(false)
 
@@ -35,6 +37,7 @@ export default function Inbox() {
         reserved,
         accountId: c.linkedAccountId, categoryId: c.suggestedCategoryId, kind: c.kind, amountCents: c.amountCents,
         description: c.merchant ?? (c.kind === 'receita' ? 'Entrada' : 'Saída'),
+        billId: c.suggestedBillId ?? null,
       },
     }))
 
@@ -102,6 +105,9 @@ export default function Inbox() {
                         Vai para <b style={{ color: 'var(--text)' }}>{acc.name}</b>{cat ? <> · {cat.icon} {cat.name}</> : ' · sem categoria'}
                       </div>
                     )}
+                    {c.suggestedBillId && (
+                      <div className="small" style={{ color: 'var(--blue)', marginBottom: 10 }}>🧾 Parece o pagamento da conta <b>{c.openBills?.find((b) => b.id === c.suggestedBillId)?.name}</b> — ao lançar, ela fica marcada como paga.</div>
+                    )}
                     <div style={{ display: 'flex', gap: 8 }}>
                       {acc && c.kind && c.amountCents ? (
                         <>
@@ -109,10 +115,10 @@ export default function Inbox() {
                           {acc.type === 'cartao' && acc.reserveRequired && c.kind === 'despesa' && (
                             <button className="btn sm green" style={{ background: 'var(--teal)' }} disabled={busyId === c.id} onClick={() => quickConfirm(c, true)}>✓ + guardei</button>
                           )}
-                          <button className="btn sm secondary" onClick={() => setOpen(c)}>Editar</button>
+                          <button className="btn sm secondary" onClick={() => { setBillId(c.suggestedBillId ?? ''); setOpen(c) }}>Editar</button>
                         </>
                       ) : (
-                        <button className="btn sm" onClick={() => setOpen(c)}>Revisar e lançar</button>
+                        <button className="btn sm" onClick={() => { setBillId(c.suggestedBillId ?? ''); setOpen(c) }}>Revisar e lançar</button>
                       )}
                       <button className="btn sm danger" style={{ marginLeft: 'auto' }} disabled={busyId === c.id}
                         onClick={() => act(c.id, () => api(`/captures/${c.id}/ignore`, { method: 'POST', body: {} }))}>Ignorar</button>
@@ -142,15 +148,28 @@ export default function Inbox() {
             occurredAt: open.receivedAt,
           }}
           top={<div className="info-box small" style={{ whiteSpace: 'pre-wrap' }}><b>{open.bank ?? 'Notificação'}:</b> {open.text}</div>}
-          extra={open.packageName ? (
-            <div className="check">
-              <span>Usar esta conta para as próximas notificações {open.channel === 'cartao' ? 'de cartão ' : ''}deste app</span>
-              <Switch checked={remember} onChange={setRemember} />
-            </div>
-          ) : undefined}
+          extra={(
+            <>
+              {open.kind === 'despesa' && (open.openBills?.length ?? 0) > 0 && (
+                <Field label="É pagamento de uma conta cadastrada?">
+                  <select className="input" value={billId} onChange={(e) => setBillId(e.target.value)}>
+                    <option value="">Não, é um gasto avulso</option>
+                    {open.openBills!.map((b) => <option key={b.id} value={b.id}>{b.name} · {money(b.amountCents)} · dia {Number(b.dueDate.slice(8, 10))}</option>)}
+                  </select>
+                  {billId && <div className="small muted" style={{ marginTop: 6 }}>A conta fica marcada como paga neste mês com o valor lançado.</div>}
+                </Field>
+              )}
+              {open.packageName && (
+                <div className="check">
+                  <span>Usar esta conta para as próximas notificações {open.channel === 'cartao' ? 'de cartão ' : ''}deste app</span>
+                  <Switch checked={remember} onChange={setRemember} />
+                </div>
+              )}
+            </>
+          )}
           onClose={() => setOpen(null)}
           onSubmit={async (v) => {
-            await api(`/captures/${open.id}/confirm`, { body: { ...v, rememberAccount: remember } })
+            await api(`/captures/${open.id}/confirm`, { body: { ...v, rememberAccount: remember, billId: v.kind === 'despesa' && billId ? billId : null } })
             notifyChanged()
             reload()
           }}

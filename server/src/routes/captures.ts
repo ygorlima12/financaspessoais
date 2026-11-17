@@ -8,6 +8,8 @@ import { aiParse } from '../parser/ai.js';
 import { getSettings, learnMerchant, suggestCategory } from '../lib/finance.js';
 import { insertTx } from './transactions.js';
 import { reserveTransaction } from '../lib/reserve.js';
+import { billsForMonth } from '../lib/bills.js';
+import { monthRange } from '../lib/http.js';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -217,8 +219,23 @@ export default async function captureRoutes(app: FastifyInstance) {
         left join transactions t on t.id = c.transaction_id
         where c.user_id = ${req.userId} and c.status = ${q.status}
         order by c.received_at desc limit 200`;
+      const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const openBills = q.status === 'pendente'
+        ? (await billsForMonth(req.userId, monthRange().month)).filter((b) => b.status !== 'paga').map((b) => ({ id: b.id, name: b.name, amountCents: b.amountCents, dueDate: b.dueDate, categoryId: b.categoryId, accountId: b.accountId, nature: b.nature }))
+        : [];
       return Promise.all(
-        rows.map(async (c: any) => ({ ...c, suggestedCategoryId: await suggestCategory(req.userId, c.merchant) })),
+        rows.map(async (c: any) => {
+          const m = c.merchant ? norm(c.merchant) : '';
+          const byName = m ? openBills.find((b) => norm(b.name).includes(m) || m.includes(norm(b.name))) : undefined;
+          const byAmount = c.amountCents ? openBills.find((b) => Math.abs(b.amountCents - c.amountCents) <= Math.max(200, b.amountCents * 0.03)) : undefined;
+          const suggested = byName ?? byAmount ?? null;
+          return {
+            ...c,
+            suggestedCategoryId: suggested?.categoryId ?? (await suggestCategory(req.userId, c.merchant)),
+            suggestedBillId: suggested?.id ?? null,
+            openBills,
+          };
+        }),
       );
     });
 
@@ -254,6 +271,9 @@ export default async function captureRoutes(app: FastifyInstance) {
           transferAccountId: z.string().uuid().nullish(),
           rememberAccount: z.boolean().default(true),
           reserved: z.boolean().optional(),
+          /** conta cadastrada que esta notificação paga (marca como paga no mês de competência) */
+          billId: z.string().uuid().nullish(),
+          billMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
         }),
         req.body,
       );
@@ -267,6 +287,14 @@ export default async function captureRoutes(app: FastifyInstance) {
       );
       await sql`update captures set status = 'confirmada', transaction_id = ${t.id} where id = ${id}`;
       if (b.reserved) await reserveTransaction(req.userId, t.id);
+      if (b.billId) {
+        const [bill] = await sql`select id from bills where id = ${b.billId} and user_id = ${req.userId}`;
+        if (!bill) throw new HttpError(400, 'Conta inválida.');
+        const period = b.billMonth ?? monthRange().month;
+        await sql`
+          insert into bill_payments (bill_id, period, amount_cents, transaction_id) values (${b.billId}, ${period}, ${t.amountCents}, ${t.id})
+          on conflict (bill_id, period) do update set amount_cents = excluded.amount_cents, transaction_id = excluded.transaction_id, paid_at = now()`;
+      }
       if (b.kind !== 'transferencia') await learnMerchant(req.userId, cap.merchant ?? b.description, b.categoryId ?? null);
       if (b.rememberAccount && cap.packageName) {
         await sql`
