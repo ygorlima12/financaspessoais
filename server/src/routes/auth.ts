@@ -27,6 +27,33 @@ const DEFAULT_CATEGORIES: Array<[string, 'receita' | 'despesa', string, string]>
   ['Outras despesas', 'despesa', '📦', '#8e8e93'],
 ];
 
+export const BUSINESS_CATEGORIES: Array<[string, 'receita' | 'despesa', string, string]> = [
+  ['Vendas / serviços', 'receita', '💼', '#30d158'],
+  ['Recorrência / assinaturas', 'receita', '🔁', '#34c759'],
+  ['Outras receitas', 'receita', '➕', '#8e8e93'],
+  ['Pró-labore / salários', 'despesa', '👥', '#ff9f0a'],
+  ['Impostos e taxas', 'despesa', '🧾', '#a2845e'],
+  ['Ferramentas e software', 'despesa', '🛠️', '#5e5ce6'],
+  ['Marketing e anúncios', 'despesa', '📣', '#bf5af2'],
+  ['Fornecedores', 'despesa', '🏭', '#ff6b35'],
+  ['Escritório / aluguel', 'despesa', '🏢', '#ff9500'],
+  ['Contador e jurídico', 'despesa', '⚖️', '#64d2ff'],
+  ['Transporte e viagens', 'despesa', '✈️', '#0a84ff'],
+  ['Alimentação', 'despesa', '🍽️', '#ffd60a'],
+  ['Tarifas bancárias', 'despesa', '🏦', '#636366'],
+  ['Outras despesas', 'despesa', '📦', '#8e8e93'],
+];
+
+/** Categorias e conta inicial de uma entidade nova */
+export async function seedEntity(tx: any, userId: string, entityId: string, kind: 'pessoal' | 'empresa') {
+  const cats = kind === 'empresa' ? BUSINESS_CATEGORIES : DEFAULT_CATEGORIES;
+  for (const [name, k, icon, color] of cats) {
+    await tx`insert into categories (user_id, entity_id, name, kind, icon, color) values (${userId}, ${entityId}, ${name}, ${k}, ${icon}, ${color})`;
+  }
+  await tx`insert into accounts (user_id, entity_id, name, type, color) values (${userId}, ${entityId}, ${kind === 'empresa' ? 'Conta PJ' : 'Carteira'}, ${kind === 'empresa' ? 'corrente' : 'carteira'}, '#30d158')`;
+  await tx`insert into entity_settings (entity_id, fixed_limit_pct) values (${entityId}, ${kind === 'empresa' ? 60 : 40}) on conflict do nothing`;
+}
+
 async function setSession(reply: any, userId: string) {
   const token = await reply.jwtSign({ sub: userId }, { expiresIn: '60d' });
   reply.setCookie('token', token, {
@@ -61,10 +88,8 @@ export default async function authRoutes(app: FastifyInstance) {
       if (exists) throw new HttpError(409, 'Esse e-mail já está cadastrado.');
       const [u] = await tx`insert into users (name, email, password_hash) values (${body.name}, ${body.email}, ${hash}) returning id, name, email`;
       await tx`insert into user_settings (user_id) values (${u.id})`;
-      for (const [name, kind, icon, color] of DEFAULT_CATEGORIES) {
-        await tx`insert into categories (user_id, name, kind, icon, color) values (${u.id}, ${name}, ${kind}, ${icon}, ${color})`;
-      }
-      await tx`insert into accounts (user_id, name, type, color) values (${u.id}, 'Carteira', 'carteira', '#30d158')`;
+      const [e] = await tx`insert into entities (user_id, name, kind, icon, is_default) values (${u.id}, 'Família', 'pessoal', '🏠', true) returning id`;
+      await seedEntity(tx, u.id, e.id, 'pessoal');
       return u;
     });
     await setSession(reply, user.id);
@@ -91,7 +116,8 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/api/auth/me', { preHandler: requireAuth }, async (req) => {
     const [u] = await sql`select id, name, email from users where id = ${req.userId}`;
     if (!u) throw new HttpError(401, 'Sessão inválida.');
-    return { user: u };
+    const [e] = await sql`select id, name, kind, icon, color from entities where id = ${req.entityId}`;
+    return { user: u, entity: e };
   });
 
   app.post('/api/auth/password', { preHandler: requireAuth }, async (req) => {

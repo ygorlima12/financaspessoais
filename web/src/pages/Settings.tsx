@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import { useData, type Account, type Category } from '../data'
+import { useData, type Account, type Category, type Entity } from '../data'
 import { ACCOUNT_TYPES, dateTimeLabel, money } from '../format'
 import { notifyChanged, useApi } from '../hooks'
 import { ErrorBox, Field, MoneyField, Segmented, Sheet, Switch, useSubmit } from '../components/ui'
 
-type Tab = 'contas' | 'categorias' | 'celular' | 'perfil'
+type Tab = 'contas' | 'categorias' | 'celular' | 'entidades' | 'perfil'
 const COLORS = ['#0a84ff', '#30d158', '#ff9f0a', '#ff375f', '#bf5af2', '#8a05be', '#ff6b35', '#64d2ff', '#ffd60a', '#8e8e93', '#1c1c1e', '#ec7000']
 
 export default function Settings({ onLogout }: { onLogout: () => void }) {
@@ -16,10 +16,11 @@ export default function Settings({ onLogout }: { onLogout: () => void }) {
     <>
       <div className="page-head"><h1>Ajustes</h1></div>
       <Segmented<Tab> value={tab} onChange={(t) => setParams({ tab: t })}
-        options={[['contas', 'Contas'], ['categorias', 'Categorias'], ['celular', 'Celular'], ['perfil', 'Perfil']]} />
+        options={[['contas', 'Contas'], ['categorias', 'Categorias'], ['celular', 'Celular'], ['entidades', 'Entidades'], ['perfil', 'Perfil']]} />
       {tab === 'contas' && <Accounts />}
       {tab === 'categorias' && <Categories />}
       {tab === 'celular' && <Phone />}
+      {tab === 'entidades' && <Entities />}
       {tab === 'perfil' && <Profile onLogout={onLogout} />}
     </>
   )
@@ -235,7 +236,7 @@ function Phone() {
   return (
     <>
       <div className="info-box small">
-        O celular Android envia cada notificação de banco para o sistema. Use o app <b>MacroDroid</b> (gratuito): gatilho “Notificação recebida” nos apps dos bancos → ação “Requisição HTTP” para o endereço abaixo. O passo a passo completo está no arquivo <b>docs/android-macrodroid.md</b> do projeto.
+        O celular Android envia cada notificação de banco para o sistema. O token é desta entidade: notificações enviadas com ele caem aqui. Use o app <b>MacroDroid</b> (gratuito): gatilho “Notificação recebida” nos apps dos bancos → ação “Requisição HTTP” para o endereço abaixo. O passo a passo completo está no arquivo <b>docs/android-macrodroid.md</b> do projeto.
       </div>
 
       <div className="section-title">Endereço do webhook</div>
@@ -329,6 +330,74 @@ function Phone() {
         )}
       </div>
     </>
+  )
+}
+
+// ---------------- Entidades ----------------
+const ENTITY_ICONS = ['🏠', '🏢', '🚀', '💼', '🏥', '⛪', '🎓', '🛒', '🧠', '📣', '🌱', '💡']
+
+function Entities() {
+  const { entity, entities, switchEntity } = useData()
+  const list = useApi<{ entities: Entity[] }>('/entities')
+  const [edit, setEdit] = useState<Entity | 'new' | null>(null)
+  const items = list.data?.entities ?? entities
+  return (
+    <>
+      <div className="info-box small">Cada entidade tem suas próprias contas, categorias, lançamentos, cartões, contas a pagar, metas e configurações. Use uma para a família e uma para cada empresa. O celular pode ter um token por entidade (Ajustes › Celular dentro de cada uma).</div>
+      <div className="section-title">Suas entidades <button className="link-btn" onClick={() => setEdit('new')}>+ Nova</button></div>
+      <div className="list">
+        {items.map((e) => (
+          <div key={e.id} className="row">
+            <div className="icon-dot" style={{ background: `color-mix(in srgb, ${e.color} 22%, transparent)` }}>{e.icon}</div>
+            <div className="grow">
+              <div className="title">{e.name} {e.id === entity.id && <span className="pill green">ativa</span>} {e.isDefault && <span className="pill">padrão</span>}</div>
+              <div className="meta">{e.kind === 'empresa' ? 'Empresa' : 'Pessoal'}{e.transactions != null ? ` · ${e.transactions} lançamentos` : ''}</div>
+            </div>
+            {e.id !== entity.id && <button className="btn sm secondary" onClick={() => switchEntity(e.id)}>Usar</button>}
+            <button className="link-btn" onClick={() => setEdit(e)}>Editar</button>
+          </div>
+        ))}
+      </div>
+      {edit && <EntityForm ent={edit === 'new' ? null : edit} canDelete={items.length > 1} onClose={() => { setEdit(null); list.reload() }} />}
+    </>
+  )
+}
+
+function EntityForm({ ent, canDelete, onClose }: { ent: Entity | null; canDelete: boolean; onClose: () => void }) {
+  const { entity, switchEntity } = useData()
+  const [v, setV] = useState({ name: ent?.name ?? '', kind: ent?.kind ?? 'empresa', icon: ent?.icon ?? '🏢', color: ent?.color ?? '#5e5ce6' })
+  const { busy, error, run } = useSubmit()
+  const save = () => run(async () => {
+    if (!v.name.trim()) throw new Error('Dê um nome.')
+    if (ent) { await api(`/entities/${ent.id}`, { method: 'PATCH', body: v }); window.location.reload() }
+    else { const e = await api('/entities', { body: v }); await switchEntity(e.id) }
+  })
+  return (
+    <Sheet title={ent ? 'Editar entidade' : 'Nova entidade'} onClose={onClose} action={<button className="link-btn" style={{ fontWeight: 600 }} disabled={busy} onClick={save}>Salvar</button>}>
+      <Field label="Nome"><input className="input" value={v.name} placeholder="Ex.: Woont, MindPilot" onChange={(e) => setV({ ...v, name: e.target.value })} autoFocus={!ent} /></Field>
+      {!ent && (
+        <>
+          <div className="field"><span>Tipo</span></div>
+          <Segmented value={v.kind} onChange={(kind) => setV({ ...v, kind, icon: kind === 'empresa' ? '🏢' : '🏠' })} options={[['empresa', 'Empresa'], ['pessoal', 'Pessoal']]} />
+          <div className="small muted" style={{ marginTop: -8, marginBottom: 14, padding: '0 4px' }}>{v.kind === 'empresa' ? 'Vem com categorias de empresa (vendas, impostos, pró-labore, ferramentas…) e limite de fixas em 60%.' : 'Vem com as categorias pessoais e limite de fixas em 40%.'}</div>
+        </>
+      )}
+      <div className="field"><span>Ícone</span></div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+        {ENTITY_ICONS.map((i) => <button key={i} type="button" onClick={() => setV({ ...v, icon: i })} style={{ width: 40, height: 40, borderRadius: 10, border: 0, fontSize: 20, background: v.icon === i ? 'color-mix(in srgb, var(--blue) 20%, transparent)' : 'var(--bg-fill-2)', boxShadow: v.icon === i ? 'inset 0 0 0 2px var(--blue)' : 'none' }}>{i}</button>)}
+      </div>
+      <div className="field"><span>Cor</span></div>
+      <ColorPicker value={v.color} onChange={(color) => setV({ ...v, color })} />
+      <ErrorBox error={error} />
+      <button className="btn block" disabled={busy} onClick={save}>{ent ? 'Salvar' : 'Criar e abrir'}</button>
+      {ent && !ent.isDefault && <button className="btn secondary block" style={{ marginTop: 8 }} disabled={busy} onClick={() => run(async () => { await api(`/entities/${ent.id}/default`, { body: {} }); onClose() })}>Tornar padrão</button>}
+      {ent && canDelete && (
+        <button className="btn danger block" style={{ marginTop: 8 }} disabled={busy}
+          onClick={() => confirm(`Excluir "${ent.name}" e TODOS os dados dela (contas, lançamentos, cartões, metas)? Não dá para desfazer.`) && confirm('Tem certeza? Digite OK para confirmar.') && run(async () => { await api(`/entities/${ent.id}`, { method: 'DELETE' }); if (ent.id === entity.id) window.location.href = '/'; else onClose() })}>
+          Excluir entidade
+        </button>
+      )}
+    </Sheet>
   )
 }
 

@@ -12,26 +12,26 @@ const R$ = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency',
 type Verdict = 'sim' | 'com_cuidado' | 'nao';
 
 /** Retrato financeiro do momento, usado pelas regras e pela IA. */
-async function snapshot(userId: string) {
+async function snapshot(userId: string, entityId: string) {
   const { month, start, end } = monthRange();
   const [accounts, cards, bills, analysis, reserve, goals, settings] = await Promise.all([
-    accountsWithBalance(userId),
-    cardsSummary(userId),
-    billsForMonth(userId, month),
-    billsAnalysis(userId, month),
-    reserveSummary(userId),
-    goalsWithProgress(userId),
-    getSettings(userId),
+    accountsWithBalance(userId, entityId),
+    cardsSummary(userId, entityId),
+    billsForMonth(userId, entityId, month),
+    billsAnalysis(userId, entityId, month),
+    reserveSummary(userId, entityId),
+    goalsWithProgress(userId, entityId),
+    getSettings(userId, entityId),
   ]);
   const [flow] = await sql`
     select coalesce(sum(amount_cents) filter (where kind = 'receita'), 0) as income,
            coalesce(sum(amount_cents) filter (where kind = 'despesa'), 0) as expense,
            coalesce(sum(amount_cents) filter (where kind = 'aporte'), 0) as invested
-    from transactions where user_id = ${userId} and occurred_at >= ${start}::date and occurred_at < ${end}::date`;
+    from transactions where user_id = ${userId} and entity_id = ${entityId} and occurred_at >= ${start}::date and occurred_at < ${end}::date`;
   const budgets = await sql<any[]>`
     select c.id, c.name, c.monthly_budget_cents, coalesce(sum(t.amount_cents), 0) as spent_cents
     from categories c left join transactions t on t.category_id = c.id and t.kind = 'despesa' and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
-    where c.user_id = ${userId} and c.monthly_budget_cents is not null and not c.archived group by c.id`;
+    where c.user_id = ${userId} and c.entity_id = ${entityId} and c.monthly_budget_cents is not null and not c.archived group by c.id`;
 
   const liquid = accounts.filter((a) => a.type !== 'cartao' && !a.isReserve);
   const liquidCents = liquid.reduce((s, a) => s + a.balanceCents, 0);
@@ -144,10 +144,11 @@ export default async function spendRoutes(app: FastifyInstance) {
 
   app.put('/api/ai/key', async (req) => {
     const b = parse(z.object({ apiKey: z.string().trim().min(20).max(300).nullish(), model: z.string().trim().max(80).nullish() }), req.body);
-    await getSettings(req.userId);
+    await getSettings(req.userId, req.entityId);
     const fields: Record<string, unknown> = {};
     if (b.apiKey !== undefined) fields.anthropicKeyEnc = b.apiKey ? encrypt(b.apiKey) : null;
     if (b.model !== undefined) fields.anthropicModel = b.model || null;
+    await sql`insert into user_settings (user_id) values (${req.userId}) on conflict (user_id) do nothing`;
     await sql`update user_settings set ${sql(fields)}, updated_at = now() where user_id = ${req.userId}`;
     return { ok: true };
   });
@@ -163,7 +164,7 @@ export default async function spendRoutes(app: FastifyInstance) {
     }
   });
 
-  app.get('/api/spend/snapshot', async (req) => snapshot(req.userId));
+  app.get('/api/spend/snapshot', async (req) => snapshot(req.userId, req.entityId));
 
   app.post('/api/spend/check', async (req) => {
     const b = parse(
@@ -178,8 +179,8 @@ export default async function spendRoutes(app: FastifyInstance) {
       }),
       req.body,
     );
-    const s = await snapshot(req.userId);
-    const accounts = await accountsWithBalance(req.userId);
+    const s = await snapshot(req.userId, req.entityId);
+    const accounts = await accountsWithBalance(req.userId, req.entityId);
     const account = b.accountId ? accounts.find((a) => a.id === b.accountId) ?? null : null;
     const rules = evaluate(s, b, account);
     let out: any = { ...rules, usedAi: false, tips: [] as string[], alternative: '', explanation: rules.reasons.map((r) => r.text).join(' ') };
@@ -203,12 +204,12 @@ export default async function spendRoutes(app: FastifyInstance) {
       }
     }
     await sql`
-      insert into spend_checks (user_id, amount_cents, purpose, reason, category_id, account_id, priority, verdict, headline, explanation, used_ai)
-      values (${req.userId}, ${b.amountCents}, ${b.purpose}, ${b.reason ?? null}, ${b.categoryId ?? null}, ${b.accountId ?? null}, ${b.priority}, ${out.verdict}, ${out.headline}, ${out.explanation}, ${out.usedAi})`;
+      insert into spend_checks (user_id, entity_id, amount_cents, purpose, reason, category_id, account_id, priority, verdict, headline, explanation, used_ai)
+      values (${req.userId}, ${req.entityId}, ${b.amountCents}, ${b.purpose}, ${b.reason ?? null}, ${b.categoryId ?? null}, ${b.accountId ?? null}, ${b.priority}, ${out.verdict}, ${out.headline}, ${out.explanation}, ${out.usedAi})`;
     return { ...out, aiError, aiConfigured: !!cred, snapshot: { freeCents: s.freeCents, liquidCents: s.liquidCents, openBillsCents: s.openBillsCents, committedCents: s.committedCents, afterCents: rules.afterCents, daysLeftInMonth: s.daysLeftInMonth } };
   });
 
   app.get('/api/spend/history', async (req) => {
-    return sql`select id, amount_cents, purpose, verdict, headline, used_ai, created_at from spend_checks where user_id = ${req.userId} order by created_at desc limit 20`;
+    return sql`select id, amount_cents, purpose, verdict, headline, used_ai, created_at from spend_checks where user_id = ${req.userId} and entity_id = ${req.entityId} order by created_at desc limit 20`;
   });
 }

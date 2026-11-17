@@ -18,8 +18,8 @@ const invBody = z.object({
   initialValueCents: zCents.optional(),
 });
 
-async function ownInvestment(userId: string, id: string) {
-  const [i] = await sql`select * from investments where id = ${id} and user_id = ${userId}`;
+async function ownInvestment(userId: string, entityId: string, id: string) {
+  const [i] = await sql`select * from investments where id = ${id} and user_id = ${userId} and entity_id = ${entityId}`;
   if (!i) throw new HttpError(404, 'Investimento não encontrado.');
   return i;
 }
@@ -36,7 +36,7 @@ export default async function investmentRoutes(app: FastifyInstance) {
 
   app.get('/api/investments', async (req) => {
     const all = (req.query as any)?.all === '1';
-    const items = await investmentsWithBalance(req.userId, all);
+    const items = await investmentsWithBalance(req.userId, req.entityId, all);
     const byType: Record<string, number> = {};
     for (const i of items) if (!i.archived) byType[i.type] = (byType[i.type] ?? 0) + i.balanceCents;
     const totals = items
@@ -51,13 +51,13 @@ export default async function investmentRoutes(app: FastifyInstance) {
   app.post('/api/investments', async (req) => {
     const b = parse(invBody, req.body);
     if (b.goalId) {
-      const [g] = await sql`select 1 from goals where id = ${b.goalId} and user_id = ${req.userId}`;
+      const [g] = await sql`select 1 from goals where id = ${b.goalId} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
       if (!g) throw new HttpError(400, 'Meta inválida.');
     }
     return sql.begin(async (tx) => {
       const [i] = await tx`
-        insert into investments (user_id, name, type, institution, liquidity, is_reserve, goal_id)
-        values (${req.userId}, ${b.name}, ${b.type}, ${b.institution ?? null}, ${b.liquidity ?? null}, ${b.isReserve}, ${b.goalId ?? null})
+        insert into investments (user_id, entity_id, name, type, institution, liquidity, is_reserve, goal_id)
+        values (${req.userId}, ${req.entityId}, ${b.name}, ${b.type}, ${b.institution ?? null}, ${b.liquidity ?? null}, ${b.isReserve}, ${b.goalId ?? null})
         returning *`;
       if (b.initialValueCents && b.initialValueCents > 0) {
         await tx`insert into investment_movements (investment_id, kind, amount_cents, note) values (${i.id}, 'aporte', ${b.initialValueCents}, 'Saldo inicial')`;
@@ -69,13 +69,13 @@ export default async function investmentRoutes(app: FastifyInstance) {
   app.patch('/api/investments/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
     const b = onlySent(parse(invBody.partial(), req.body), req.body);
-    await ownInvestment(req.userId, id);
+    await ownInvestment(req.userId, req.entityId, id);
     const raw = (req.body ?? {}) as Record<string, unknown>;
     const fields: Record<string, unknown> = {};
     for (const k of ['name', 'type', 'isReserve', 'archived'] as const) if (b[k] !== undefined) fields[k] = b[k];
     for (const k of ['institution', 'liquidity', 'goalId'] as const) if (k in raw) fields[k] = b[k] || null;
     if (fields.goalId) {
-      const [g] = await sql`select 1 from goals where id = ${fields.goalId as string} and user_id = ${req.userId}`;
+      const [g] = await sql`select 1 from goals where id = ${fields.goalId as string} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
       if (!g) throw new HttpError(400, 'Meta inválida.');
     }
     if (!Object.keys(fields).length) throw new HttpError(400, 'Nada para atualizar.');
@@ -85,10 +85,10 @@ export default async function investmentRoutes(app: FastifyInstance) {
 
   app.delete('/api/investments/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
-    await ownInvestment(req.userId, id);
+    await ownInvestment(req.userId, req.entityId, id);
     await sql.begin(async (tx) => {
       // Lançamentos de aporte/resgate nas contas viram transferências "soltas"? Não: removemos para manter o saldo coerente.
-      await tx`delete from transactions where investment_id = ${id} and user_id = ${req.userId}`;
+      await tx`delete from transactions where investment_id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
       await tx`delete from investments where id = ${id}`;
     });
     return { ok: true };
@@ -96,7 +96,7 @@ export default async function investmentRoutes(app: FastifyInstance) {
 
   app.get('/api/investments/:id/movements', async (req) => {
     const { id } = parse(zIdParam, req.params);
-    await ownInvestment(req.userId, id);
+    await ownInvestment(req.userId, req.entityId, id);
     return sql`
       select m.*, a.name as account_name from investment_movements m
       left join transactions t on t.id = m.transaction_id
@@ -117,17 +117,17 @@ export default async function investmentRoutes(app: FastifyInstance) {
       }),
       req.body,
     );
-    const inv = await ownInvestment(req.userId, id);
+    const inv = await ownInvestment(req.userId, req.entityId, id);
     if (b.kind === 'resgate' && b.amountCents > (await currentBalance(id))) throw new HttpError(400, 'Resgate maior que o saldo do investimento.');
     const when = b.occurredAt ?? new Date().toISOString();
     return sql.begin(async (tx) => {
       let transactionId: string | null = null;
       if (b.accountId) {
-        const [a] = await tx`select 1 from accounts where id = ${b.accountId} and user_id = ${req.userId}`;
+        const [a] = await tx`select 1 from accounts where id = ${b.accountId} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
         if (!a) throw new HttpError(400, 'Conta inválida.');
         const [t] = await tx`
-          insert into transactions (user_id, account_id, kind, amount_cents, description, occurred_at, investment_id)
-          values (${req.userId}, ${b.accountId}, ${b.kind}, ${b.amountCents}, ${(b.kind === 'aporte' ? 'Aporte em ' : 'Resgate de ') + inv.name}, ${when}, ${id})
+          insert into transactions (user_id, entity_id, account_id, kind, amount_cents, description, occurred_at, investment_id)
+          values (${req.userId}, ${req.entityId}, ${b.accountId}, ${b.kind}, ${b.amountCents}, ${(b.kind === 'aporte' ? 'Aporte em ' : 'Resgate de ') + inv.name}, ${when}, ${id})
           returning id`;
         transactionId = t.id;
       }
@@ -143,7 +143,7 @@ export default async function investmentRoutes(app: FastifyInstance) {
   app.post('/api/investments/:id/value', async (req) => {
     const { id } = parse(zIdParam, req.params);
     const b = parse(z.object({ valueCents: zCents.refine((v) => v >= 0), occurredAt: zDateTime.optional() }), req.body);
-    await ownInvestment(req.userId, id);
+    await ownInvestment(req.userId, req.entityId, id);
     const diff = b.valueCents - (await currentBalance(id));
     if (diff === 0) return { ok: true, diff };
     await sql`
@@ -154,10 +154,10 @@ export default async function investmentRoutes(app: FastifyInstance) {
 
   app.delete('/api/investments/:id/movements/:movementId', async (req) => {
     const p = parse(z.object({ id: z.string().uuid(), movementId: z.string().uuid() }), req.params);
-    await ownInvestment(req.userId, p.id);
+    await ownInvestment(req.userId, req.entityId, p.id);
     await sql.begin(async (tx) => {
       const [m] = await tx`delete from investment_movements where id = ${p.movementId} and investment_id = ${p.id} returning transaction_id`;
-      if (m?.transactionId) await tx`delete from transactions where id = ${m.transactionId} and user_id = ${req.userId}`;
+      if (m?.transactionId) await tx`delete from transactions where id = ${m.transactionId} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     });
     return { ok: true };
   });

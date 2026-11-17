@@ -22,7 +22,8 @@ export function useNewTransaction() {
 }
 
 export default function Home() {
-  const { user } = useData()
+  const { user, entity, entities, switchEntity } = useData()
+  const [entOpen, setEntOpen] = useState(false)
   const { data: d, loading } = useApi<any>('/dashboard')
   const nt = useNewTransaction()
   const [spend, setSpend] = useState(false)
@@ -40,7 +41,19 @@ export default function Home() {
       <div className="page-head">
         <div>
           <div className="sub">{greet}, {user.name.split(' ')[0]}</div>
-          <h1>Início</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            Início
+            {entities.length > 1 && (
+              <span style={{ position: 'relative' }}>
+                <button className="entity-chip" style={{ borderColor: entity.color }} onClick={() => setEntOpen(!entOpen)}>{entity.icon} {entity.name} ▾</button>
+                {entOpen && (
+                  <div className="entity-menu">
+                    {entities.map((e) => <button key={e.id} className={e.id === entity.id ? 'on' : ''} onClick={() => { setEntOpen(false); if (e.id !== entity.id) switchEntity(e.id) }}>{e.icon} {e.name}</button>)}
+                  </div>
+                )}
+              </span>
+            )}
+          </h1>
         </div>
         <button className="btn sm" style={{ background: 'linear-gradient(135deg, #34c759, #0a84ff)' }} onClick={() => setSpend(true)}>💸 Posso gastar?</button>
       </div>

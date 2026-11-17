@@ -20,14 +20,14 @@ export const txBody = z.object({
 export type TxBody = z.infer<typeof txBody>;
 
 /** Garante que conta/categoria pertencem ao usuário e que a transferência é coerente. */
-export async function validateTx(userId: string, b: Partial<TxBody>) {
+export async function validateTx(userId: string, entityId: string, b: Partial<TxBody>) {
   const ids = [b.accountId, b.transferAccountId].filter(Boolean) as string[];
   if (ids.length) {
-    const rows = await sql`select id from accounts where user_id = ${userId} and id in ${sql(ids)}`;
+    const rows = await sql`select id from accounts where user_id = ${userId} and entity_id = ${entityId} and id in ${sql(ids)}`;
     if (rows.length !== new Set(ids).size) throw new HttpError(400, 'Conta inválida.');
   }
   if (b.categoryId) {
-    const [c] = await sql`select kind from categories where id = ${b.categoryId} and user_id = ${userId}`;
+    const [c] = await sql`select kind from categories where id = ${b.categoryId} and user_id = ${userId} and entity_id = ${entityId}`;
     if (!c) throw new HttpError(400, 'Categoria inválida.');
     if (b.kind && b.kind !== 'transferencia' && c.kind !== b.kind) throw new HttpError(400, 'A categoria não combina com o tipo do lançamento.');
   }
@@ -37,11 +37,11 @@ export async function validateTx(userId: string, b: Partial<TxBody>) {
   }
 }
 
-export async function insertTx(userId: string, b: TxBody, source: 'manual' | 'notificacao' = 'manual') {
-  await validateTx(userId, b);
+export async function insertTx(userId: string, entityId: string, b: TxBody, source: 'manual' | 'notificacao' = 'manual') {
+  await validateTx(userId, entityId, b);
   const [t] = await sql`
-    insert into transactions (user_id, account_id, category_id, kind, amount_cents, description, occurred_at, transfer_account_id, notes, source)
-    values (${userId}, ${b.accountId}, ${b.kind === 'transferencia' ? null : b.categoryId ?? null}, ${b.kind}, ${b.amountCents},
+    insert into transactions (user_id, entity_id, account_id, category_id, kind, amount_cents, description, occurred_at, transfer_account_id, notes, source)
+    values (${userId}, ${entityId}, ${b.accountId}, ${b.kind === 'transferencia' ? null : b.categoryId ?? null}, ${b.kind}, ${b.amountCents},
             ${b.description}, ${b.occurredAt ?? new Date().toISOString()}, ${b.kind === 'transferencia' ? b.transferAccountId! : null},
             ${b.notes ?? null}, ${source})
     returning *`;
@@ -71,7 +71,7 @@ export default async function transactionRoutes(app: FastifyInstance) {
       left join accounts ta on ta.id = t.transfer_account_id
       left join categories c on c.id = t.category_id
       left join investments i on i.id = t.investment_id
-      where t.user_id = ${req.userId}
+      where t.user_id = ${req.userId} and t.entity_id = ${req.entityId}
         and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
         ${q.accountId ? sql`and (t.account_id = ${q.accountId} or t.transfer_account_id = ${q.accountId})` : sql``}
         ${q.categoryId ? sql`and t.category_id = ${q.categoryId}` : sql``}
@@ -92,20 +92,20 @@ export default async function transactionRoutes(app: FastifyInstance) {
 
   app.post('/api/transactions', async (req) => {
     const b = parse(txBody, req.body);
-    const t = await insertTx(req.userId, b);
-    if (b.kind !== 'transferencia') await learnMerchant(req.userId, b.description, b.categoryId ?? null);
-    if (b.reserved) await reserveTransaction(req.userId, t.id);
+    const t = await insertTx(req.userId, req.entityId, b);
+    if (b.kind !== 'transferencia') await learnMerchant(req.userId, req.entityId, b.description, b.categoryId ?? null);
+    if (b.reserved) await reserveTransaction(req.userId, req.entityId, t.id);
     return t;
   });
 
   app.patch('/api/transactions/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
     const b = onlySent(parse(txBody.partial(), req.body), req.body);
-    const [cur] = await sql`select * from transactions where id = ${id} and user_id = ${req.userId}`;
+    const [cur] = await sql`select * from transactions where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     if (!cur) throw new HttpError(404, 'Lançamento não encontrado.');
     if (['aporte', 'resgate'].includes(cur.kind)) throw new HttpError(400, 'Edite aportes e resgates pela tela de Investimentos.');
     const merged = { ...cur, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) } as any;
-    await validateTx(req.userId, merged);
+    await validateTx(req.userId, req.entityId, merged);
     const [t] = await sql`
       update transactions set
         account_id = ${merged.accountId},
@@ -116,9 +116,9 @@ export default async function transactionRoutes(app: FastifyInstance) {
         occurred_at = ${merged.occurredAt instanceof Date ? merged.occurredAt.toISOString() : merged.occurredAt},
         transfer_account_id = ${merged.kind === 'transferencia' ? merged.transferAccountId : null},
         notes = ${merged.notes ?? null}
-      where id = ${id} and user_id = ${req.userId}
+      where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}
       returning *`;
-    if (b.categoryId && merged.kind !== 'transferencia') await learnMerchant(req.userId, merged.description, b.categoryId);
+    if (b.categoryId && merged.kind !== 'transferencia') await learnMerchant(req.userId, req.entityId, merged.description, b.categoryId);
     return t;
   });
 
@@ -126,13 +126,13 @@ export default async function transactionRoutes(app: FastifyInstance) {
   app.post('/api/transactions/:id/reserve', async (req) => {
     const { id } = parse(zIdParam, req.params);
     const b = parse(z.object({ fromAccountId: z.string().uuid().nullish(), transfer: z.boolean().optional() }), req.body ?? {});
-    const r = await reserveTransaction(req.userId, id, b);
+    const r = await reserveTransaction(req.userId, req.entityId, id, b);
     if (!r) throw new HttpError(404, 'Lançamento não encontrado.');
     return r;
   });
   app.delete('/api/transactions/:id/reserve', async (req) => {
     const { id } = parse(zIdParam, req.params);
-    const r = await unreserveTransaction(req.userId, id);
+    const r = await unreserveTransaction(req.userId, req.entityId, id);
     if (!r) throw new HttpError(404, 'Lançamento não encontrado.');
     return r;
   });
@@ -141,11 +141,11 @@ export default async function transactionRoutes(app: FastifyInstance) {
     const { id } = parse(zIdParam, req.params);
     await sql.begin(async (tx) => {
       // compra no cartão com dinheiro guardado: a transferência de reserva vai junto
-      await tx`delete from transactions where id = (select reserve_transaction_id from transactions where id = ${id} and user_id = ${req.userId})`;
+      await tx`delete from transactions where id = (select reserve_transaction_id from transactions where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId})`;
       // Se veio de uma notificação, a captura volta para a caixa de entrada como "ignorada"
-      await tx`update captures set status = 'ignorada', transaction_id = null where transaction_id = ${id} and user_id = ${req.userId}`;
+      await tx`update captures set status = 'ignorada', transaction_id = null where transaction_id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
       await tx`delete from investment_movements where transaction_id = ${id}`;
-      await tx`delete from transactions where id = ${id} and user_id = ${req.userId}`;
+      await tx`delete from transactions where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     });
     return { ok: true };
   });
@@ -159,7 +159,7 @@ export default async function transactionRoutes(app: FastifyInstance) {
       join accounts a on a.id = t.account_id
       left join accounts ta on ta.id = t.transfer_account_id
       left join categories c on c.id = t.category_id
-      where t.user_id = ${req.userId} order by t.occurred_at`;
+      where t.user_id = ${req.userId} and t.entity_id = ${req.entityId} order by t.occurred_at`;
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = ['data;tipo;valor;descricao;categoria;conta;conta_destino;origem'];
     for (const r of rows as any[]) {

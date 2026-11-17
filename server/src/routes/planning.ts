@@ -22,13 +22,13 @@ export default async function planningRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
   // ---------- Metas ----------
-  app.get('/api/goals', async (req) => goalsWithProgress(req.userId));
+  app.get('/api/goals', async (req) => goalsWithProgress(req.userId, req.entityId));
 
   app.post('/api/goals', async (req) => {
     const b = parse(goalBody, req.body);
     const [g] = await sql`
-      insert into goals (user_id, name, icon, target_cents, saved_cents, deadline)
-      values (${req.userId}, ${b.name}, ${b.icon}, ${b.targetCents}, ${b.savedCents}, ${b.deadline ?? null})
+      insert into goals (user_id, entity_id, name, icon, target_cents, saved_cents, deadline)
+      values (${req.userId}, ${req.entityId}, ${b.name}, ${b.icon}, ${b.targetCents}, ${b.savedCents}, ${b.deadline ?? null})
       returning *`;
     return g;
   });
@@ -38,22 +38,22 @@ export default async function planningRoutes(app: FastifyInstance) {
     const fields: Record<string, unknown> = onlySent(parse(goalBody.partial(), req.body), req.body);
     if (req.body && typeof req.body === 'object' && 'deadline' in req.body) fields.deadline = (req.body as any).deadline || null;
     if (!Object.keys(fields).length) throw new HttpError(400, 'Nada para atualizar.');
-    const [g] = await sql`update goals set ${sql(fields)} where id = ${id} and user_id = ${req.userId} returning *`;
+    const [g] = await sql`update goals set ${sql(fields)} where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId} returning *`;
     if (!g) throw new HttpError(404, 'Meta não encontrada.');
     return g;
   });
 
   app.delete('/api/goals/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
-    await sql`delete from goals where id = ${id} and user_id = ${req.userId}`;
+    await sql`delete from goals where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     return { ok: true };
   });
 
   // ---------- Reserva de emergência ----------
-  app.get('/api/reserve', async (req) => reserveSummary(req.userId));
+  app.get('/api/reserve', async (req) => reserveSummary(req.userId, req.entityId));
 
   // ---------- Configurações ----------
-  app.get('/api/settings', async (req) => getSettings(req.userId));
+  app.get('/api/settings', async (req) => getSettings(req.userId, req.entityId));
 
   app.put('/api/settings', async (req) => {
     const b = parse(
@@ -64,47 +64,48 @@ export default async function planningRoutes(app: FastifyInstance) {
       }),
       req.body,
     );
-    await getSettings(req.userId);
+    await getSettings(req.userId, req.entityId);
     const fields: Record<string, unknown> = { updatedAt: new Date() };
     if (b.reserveMonths !== undefined) fields.reserveMonths = b.reserveMonths;
     if (b.reserveMonthlyCostCents !== undefined) fields.reserveMonthlyCostCents = b.reserveMonthlyCostCents ?? null;
     if (b.autoConfirmCaptures !== undefined) fields.autoConfirmCaptures = b.autoConfirmCaptures;
-    const [s] = await sql`update user_settings set ${sql(fields)} where user_id = ${req.userId} returning *`;
+    const [s] = await sql`update entity_settings set ${sql(fields)} where entity_id = ${req.entityId} returning *`;
     return s;
   });
 
   // ---------- Painel ----------
   app.get('/api/dashboard', async (req) => {
     const uid = req.userId;
+    const eid = req.entityId;
     const { start, end, month } = monthRange();
     const [accounts, investments, history, flow, reserve, goals, byCategory, pending, budgets, bills, billsInfo, unreserved] = await Promise.all([
-      accountsWithBalance(uid, true),
-      investmentsWithBalance(uid, true),
-      netWorthHistory(uid, 12),
-      monthlyFlow(uid, 6),
-      reserveSummary(uid),
-      goalsWithProgress(uid),
+      accountsWithBalance(uid, eid, true),
+      investmentsWithBalance(uid, eid, true),
+      netWorthHistory(uid, eid, 12),
+      monthlyFlow(uid, eid, 6),
+      reserveSummary(uid, eid),
+      goalsWithProgress(uid, eid),
       sql`
         select c.id, c.name, c.icon, c.color, sum(t.amount_cents) as total_cents
         from transactions t join categories c on c.id = t.category_id
-        where t.user_id = ${uid} and t.kind = 'despesa' and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
+        where t.user_id = ${uid} and t.entity_id = ${eid} and t.kind = 'despesa' and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
         group by c.id order by total_cents desc`,
-      sql`select count(*)::int as count from captures where user_id = ${uid} and status = 'pendente'`,
+      sql`select count(*)::int as count from captures where user_id = ${uid} and entity_id = ${eid} and status = 'pendente'`,
       sql`
         select c.id, c.name, c.icon, c.color, c.monthly_budget_cents,
           coalesce(sum(t.amount_cents), 0) as spent_cents
         from categories c
         left join transactions t on t.category_id = c.id and t.kind = 'despesa'
           and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
-        where c.user_id = ${uid} and c.monthly_budget_cents is not null and not c.archived
+        where c.user_id = ${uid} and c.entity_id = ${eid} and c.monthly_budget_cents is not null and not c.archived
         group by c.id order by coalesce(sum(t.amount_cents), 0)::float / c.monthly_budget_cents desc`,
-      billsForMonth(uid, month),
-      billsAnalysis(uid, month),
-      unreservedByCard(uid),
+      billsForMonth(uid, eid, month),
+      billsAnalysis(uid, eid, month),
+      unreservedByCard(uid, eid),
     ]);
     const [uncategorized] = await sql`
       select coalesce(sum(amount_cents), 0) as total from transactions
-      where user_id = ${uid} and kind = 'despesa' and category_id is null
+      where user_id = ${uid} and entity_id = ${eid} and kind = 'despesa' and category_id is null
         and occurred_at >= ${start}::date and occurred_at < ${end}::date`;
 
     const slim = (b: any) => ({ id: b.id, name: b.name, amountCents: b.amountCents, dueDate: b.dueDate, icon: b.categoryIcon, status: b.status, daysLeft: b.daysLeft });

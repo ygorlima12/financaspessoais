@@ -9,7 +9,7 @@ const ACCOUNT_EFFECT = (accountCol: string) => `
     else 0
   end`;
 
-export async function accountsWithBalance(userId: string, includeArchived = false) {
+export async function accountsWithBalance(userId: string, entityId: string, includeArchived = false) {
   return sql.unsafe(
     `select a.*,
        a.initial_balance_cents + coalesce((
@@ -18,13 +18,13 @@ export async function accountsWithBalance(userId: string, includeArchived = fals
          where t.user_id = a.user_id and (t.account_id = a.id or t.transfer_account_id = a.id)
        ), 0) as balance_cents
      from accounts a
-     where a.user_id = $1 ${includeArchived ? '' : 'and not a.archived'}
+     where a.user_id = $1 and a.entity_id = $2 ${includeArchived ? '' : 'and not a.archived'}
      order by a.archived, a.created_at`,
-    [userId],
+    [userId, entityId],
   ) as Promise<any[]>;
 }
 
-export async function investmentsWithBalance(userId: string, includeArchived = false) {
+export async function investmentsWithBalance(userId: string, entityId: string, includeArchived = false) {
   return sql.unsafe(
     `select i.*,
        coalesce(sum(case m.kind when 'aporte' then m.amount_cents when 'resgate' then -m.amount_cents else m.amount_cents end), 0) as balance_cents,
@@ -33,15 +33,15 @@ export async function investmentsWithBalance(userId: string, includeArchived = f
        max(m.occurred_at) as last_movement_at
      from investments i
      left join investment_movements m on m.investment_id = i.id
-     where i.user_id = $1 ${includeArchived ? '' : 'and not i.archived'}
+     where i.user_id = $1 and i.entity_id = $2 ${includeArchived ? '' : 'and not i.archived'}
      group by i.id
      order by i.archived, i.created_at`,
-    [userId],
+    [userId, entityId],
   ) as Promise<any[]>;
 }
 
 /** Patrimônio no fim de cada um dos últimos N meses (inclui o mês atual até agora). */
-export async function netWorthHistory(userId: string, months = 12) {
+export async function netWorthHistory(userId: string, entityId: string, months = 12) {
   return sql.unsafe(
     `with m as (
        select (date_trunc('month', now()) - (n || ' months')::interval) as start_at,
@@ -49,26 +49,26 @@ export async function netWorthHistory(userId: string, months = 12) {
        from generate_series(0, $2::int - 1) n
      )
      select to_char(m.start_at, 'YYYY-MM') as month,
-       (select coalesce(sum(initial_balance_cents), 0) from accounts where user_id = $1)
+       (select coalesce(sum(initial_balance_cents), 0) from accounts where user_id = $1 and entity_id = $3)
        + (select coalesce(sum(case
             when kind in ('receita','resgate') then amount_cents
             when kind in ('despesa','aporte') then -amount_cents
             else 0 end), 0)
-          from transactions where user_id = $1 and occurred_at < m.end_at)
+          from transactions where user_id = $1 and entity_id = $3 and occurred_at < m.end_at)
        as accounts_cents,
        (select coalesce(sum(case mv.kind when 'resgate' then -mv.amount_cents else mv.amount_cents end), 0)
           from investment_movements mv join investments i on i.id = mv.investment_id
-          where i.user_id = $1 and mv.occurred_at < m.end_at)
+          where i.user_id = $1 and i.entity_id = $3 and mv.occurred_at < m.end_at)
        as investments_cents
      from m order by m.start_at`,
-    [userId, months],
+    [userId, months, entityId],
   ).then((rows: any[]) =>
     rows.map((r) => ({ ...r, netWorthCents: r.accountsCents + r.investmentsCents })),
   );
 }
 
 /** Receitas e despesas por mês (transferências e aportes não contam como gasto). */
-export async function monthlyFlow(userId: string, months = 6) {
+export async function monthlyFlow(userId: string, entityId: string, months = 6) {
   return sql.unsafe(
     `with m as (
        select date_trunc('month', now()) - (n || ' months')::interval as start_at
@@ -79,38 +79,39 @@ export async function monthlyFlow(userId: string, months = 6) {
        coalesce(sum(t.amount_cents) filter (where t.kind = 'despesa'), 0) as expense_cents,
        coalesce(sum(t.amount_cents) filter (where t.kind = 'aporte'), 0) as invested_cents
      from m
-     left join transactions t on t.user_id = $1
+     left join transactions t on t.user_id = $1 and t.entity_id = $3
        and t.occurred_at >= m.start_at and t.occurred_at < m.start_at + interval '1 month'
      group by m.start_at order by m.start_at`,
-    [userId, months],
+    [userId, months, entityId],
   ) as Promise<any[]>;
 }
 
-export async function getSettings(userId: string) {
+export async function getSettings(userId: string, entityId: string) {
+  void userId;
   const [s] = await sql`
-    insert into user_settings (user_id) values (${userId})
-    on conflict (user_id) do update set user_id = excluded.user_id
+    insert into entity_settings (entity_id) values (${entityId})
+    on conflict (entity_id) do update set entity_id = excluded.entity_id
     returning *`;
   return s;
 }
 
 /** Média de despesas dos últimos 3 meses completos. */
-export async function avgMonthlyExpense(userId: string) {
+export async function avgMonthlyExpense(userId: string, entityId: string) {
   const [r] = await sql`
     select coalesce(sum(amount_cents), 0) / 3.0 as avg
     from transactions
-    where user_id = ${userId} and kind = 'despesa'
+    where user_id = ${userId} and entity_id = ${entityId} and kind = 'despesa'
       and occurred_at >= date_trunc('month', now()) - interval '3 months'
       and occurred_at < date_trunc('month', now())`;
   return Math.round(Number(r.avg));
 }
 
-export async function reserveSummary(userId: string) {
-  const settings = await getSettings(userId);
+export async function reserveSummary(userId: string, entityId: string) {
+  const settings = await getSettings(userId, entityId);
   const [accounts, investments, avg] = await Promise.all([
-    accountsWithBalance(userId),
-    investmentsWithBalance(userId),
-    avgMonthlyExpense(userId),
+    accountsWithBalance(userId, entityId),
+    investmentsWithBalance(userId, entityId),
+    avgMonthlyExpense(userId, entityId),
   ]);
   const monthlyCost = settings.reserveMonthlyCostCents ?? avg;
   const items = [
@@ -133,7 +134,7 @@ export async function reserveSummary(userId: string) {
   };
 }
 
-export async function goalsWithProgress(userId: string) {
+export async function goalsWithProgress(userId: string, entityId: string) {
   const goals = await sql<any[]>`
     select g.*, coalesce((
       select sum(case m.kind when 'resgate' then -m.amount_cents else m.amount_cents end)
@@ -141,7 +142,7 @@ export async function goalsWithProgress(userId: string) {
       where i.goal_id = g.id
     ), 0) as linked_cents,
     (select coalesce(json_agg(json_build_object('id', i.id, 'name', i.name)), '[]') from investments i where i.goal_id = g.id) as linked_investments
-    from goals g where g.user_id = ${userId}
+    from goals g where g.user_id = ${userId} and g.entity_id = ${entityId}
     order by g.achieved, g.deadline nulls last, g.created_at`;
   const today = new Date();
   return goals.map((g) => {
@@ -164,13 +165,13 @@ export async function goalsWithProgress(userId: string) {
 }
 
 /** Encontra a categoria aprendida para um estabelecimento. */
-export async function suggestCategory(userId: string, merchant: string | null): Promise<string | null> {
+export async function suggestCategory(userId: string, entityId: string, merchant: string | null): Promise<string | null> {
   if (!merchant) return null;
   const key = normalizeMerchant(merchant);
   if (!key) return null;
   const [r] = await sql`
     select category_id from merchant_rules
-    where user_id = ${userId} and (${key} = pattern or position(pattern in ${key}) > 0)
+    where user_id = ${userId} and entity_id = ${entityId} and (${key} = pattern or position(pattern in ${key}) > 0)
     order by length(pattern) desc limit 1`;
   return r?.categoryId ?? null;
 }
@@ -186,11 +187,11 @@ export function normalizeMerchant(s: string): string {
     .slice(0, 40);
 }
 
-export async function learnMerchant(userId: string, merchant: string | null, categoryId: string | null) {
+export async function learnMerchant(userId: string, entityId: string, merchant: string | null, categoryId: string | null) {
   if (!merchant || !categoryId) return;
   const key = normalizeMerchant(merchant);
   if (key.length < 3) return;
   await sql`
-    insert into merchant_rules (user_id, pattern, category_id) values (${userId}, ${key}, ${categoryId})
+    insert into merchant_rules (user_id, entity_id, pattern, category_id) values (${userId}, ${entityId}, ${key}, ${categoryId})
     on conflict (user_id, pattern) do update set category_id = excluded.category_id`;
 }

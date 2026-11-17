@@ -23,14 +23,14 @@ const billBody = z.object({
   archived: z.boolean().optional(),
 });
 
-async function checkRefs(userId: string, b: { categoryId?: string | null; accountId?: string | null }) {
+async function checkRefs(userId: string, entityId: string, b: { categoryId?: string | null; accountId?: string | null }) {
   if (b.categoryId) {
-    const [c] = await sql`select kind from categories where id = ${b.categoryId} and user_id = ${userId}`;
+    const [c] = await sql`select kind from categories where id = ${b.categoryId} and user_id = ${userId} and entity_id = ${entityId}`;
     if (!c) throw new HttpError(400, 'Categoria inválida.');
     if (c.kind !== 'despesa') throw new HttpError(400, 'Use uma categoria de saída.');
   }
   if (b.accountId) {
-    const [a] = await sql`select 1 from accounts where id = ${b.accountId} and user_id = ${userId}`;
+    const [a] = await sql`select 1 from accounts where id = ${b.accountId} and user_id = ${userId} and entity_id = ${entityId}`;
     if (!a) throw new HttpError(400, 'Conta inválida.');
   }
 }
@@ -47,7 +47,7 @@ export default async function billRoutes(app: FastifyInstance) {
   app.get('/api/bills', async (req) => {
     const q = parse(z.object({ month: zMonth.optional() }), req.query);
     const { month } = monthRange(q.month);
-    const [bills, analysis] = await Promise.all([billsForMonth(req.userId, month), billsAnalysis(req.userId, month)]);
+    const [bills, analysis] = await Promise.all([billsForMonth(req.userId, req.entityId, month), billsAnalysis(req.userId, req.entityId, month)]);
     return { month, bills, analysis };
   });
 
@@ -55,17 +55,17 @@ export default async function billRoutes(app: FastifyInstance) {
     return sql`
       select b.*, c.name as category_name, c.icon as category_icon, a.name as account_name
       from bills b left join categories c on c.id = b.category_id left join accounts a on a.id = b.account_id
-      where b.user_id = ${req.userId} order by b.archived, b.nature, b.due_day, b.name`;
+      where b.user_id = ${req.userId} and b.entity_id = ${req.entityId} order by b.archived, b.nature, b.due_day, b.name`;
   });
 
   app.post('/api/bills', async (req) => {
     const b = parse(billBody, req.body);
-    await checkRefs(req.userId, b);
+    await checkRefs(req.userId, req.entityId, b);
     const startsOn = b.startsOn ?? new Date().toISOString().slice(0, 10);
     const endsOn = endsFromInstallments(startsOn, b.installments, b.endsOn);
     const [row] = await sql`
-      insert into bills (user_id, name, category_id, account_id, amount_cents, nature, priority, due_day, starts_on, ends_on, installments, notes)
-      values (${req.userId}, ${b.name}, ${b.categoryId ?? null}, ${b.accountId ?? null}, ${b.amountCents}, ${b.nature}, ${b.priority},
+      insert into bills (user_id, entity_id, name, category_id, account_id, amount_cents, nature, priority, due_day, starts_on, ends_on, installments, notes)
+      values (${req.userId}, ${req.entityId}, ${b.name}, ${b.categoryId ?? null}, ${b.accountId ?? null}, ${b.amountCents}, ${b.nature}, ${b.priority},
               ${b.dueDay}, ${startsOn}, ${endsOn}, ${b.installments ?? null}, ${b.notes ?? null})
       returning *`;
     return row;
@@ -73,10 +73,10 @@ export default async function billRoutes(app: FastifyInstance) {
 
   app.patch('/api/bills/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
-    const [cur] = await sql`select * from bills where id = ${id} and user_id = ${req.userId}`;
+    const [cur] = await sql`select * from bills where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     if (!cur) throw new HttpError(404, 'Conta não encontrada.');
     const b = onlySent(parse(billBody.partial(), req.body), req.body);
-    await checkRefs(req.userId, b);
+    await checkRefs(req.userId, req.entityId, b);
     const raw = (req.body ?? {}) as Record<string, unknown>;
     const fields: Record<string, unknown> = {};
     for (const k of ['name', 'amountCents', 'nature', 'priority', 'dueDay', 'startsOn', 'archived'] as const) if (b[k] !== undefined) fields[k] = b[k];
@@ -95,7 +95,7 @@ export default async function billRoutes(app: FastifyInstance) {
   app.delete('/api/bills/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
     // Os lançamentos já feitos continuam; só a conta e o vínculo somem
-    await sql`delete from bills where id = ${id} and user_id = ${req.userId}`;
+    await sql`delete from bills where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     return { ok: true };
   });
 
@@ -112,7 +112,7 @@ export default async function billRoutes(app: FastifyInstance) {
       }),
       req.body,
     );
-    const [bill] = await sql`select * from bills where id = ${id} and user_id = ${req.userId}`;
+    const [bill] = await sql`select * from bills where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     if (!bill) throw new HttpError(404, 'Conta não encontrada.');
     const [exists] = await sql`select 1 from bill_payments where bill_id = ${id} and period = ${b.month}`;
     if (exists) throw new HttpError(409, 'Essa conta já está paga neste mês.');
@@ -120,14 +120,14 @@ export default async function billRoutes(app: FastifyInstance) {
     let transactionId: string | null = null;
     let amount = b.amountCents ?? bill.amountCents;
     if (b.transactionId) {
-      const [t] = await sql`select id, amount_cents from transactions where id = ${b.transactionId} and user_id = ${req.userId}`;
+      const [t] = await sql`select id, amount_cents from transactions where id = ${b.transactionId} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
       if (!t) throw new HttpError(400, 'Lançamento inválido.');
       transactionId = t.id;
       amount = t.amountCents;
     } else {
       const accountId = b.accountId ?? bill.accountId;
       if (!accountId) throw new HttpError(400, 'Escolha de qual conta o pagamento saiu.');
-      const t = await insertTx(req.userId, {
+      const t = await insertTx(req.userId, req.entityId, {
         accountId,
         categoryId: bill.categoryId,
         kind: 'despesa',
@@ -146,28 +146,28 @@ export default async function billRoutes(app: FastifyInstance) {
   /** Desfaz o pagamento do mês (apaga o lançamento criado por ele). */
   app.delete('/api/bills/:id/pay/:month', async (req) => {
     const p = parse(z.object({ id: z.string().uuid(), month: zMonth }), req.params);
-    const [bill] = await sql`select 1 from bills where id = ${p.id} and user_id = ${req.userId}`;
+    const [bill] = await sql`select 1 from bills where id = ${p.id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     if (!bill) throw new HttpError(404, 'Conta não encontrada.');
     await sql.begin(async (tx) => {
       const [pay] = await tx`delete from bill_payments where bill_id = ${p.id} and period = ${p.month} returning transaction_id`;
-      if (pay?.transactionId) await tx`delete from transactions where id = ${pay.transactionId} and user_id = ${req.userId}`;
+      if (pay?.transactionId) await tx`delete from transactions where id = ${pay.transactionId} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     });
     return { ok: true };
   });
 
   app.get('/api/bills/analysis', async (req) => {
     const q = parse(z.object({ month: zMonth.optional() }), req.query);
-    return billsAnalysis(req.userId, monthRange(q.month).month);
+    return billsAnalysis(req.userId, req.entityId, monthRange(q.month).month);
   });
 
   /** Configurações do módulo (limite de fixas e renda de referência) */
   app.put('/api/bills/settings', async (req) => {
     const b = parse(z.object({ fixedLimitPct: z.coerce.number().int().min(10).max(90).optional(), monthlyIncomeCents: z.coerce.number().int().positive().nullish() }), req.body);
-    await getSettings(req.userId);
+    await getSettings(req.userId, req.entityId);
     const fields: Record<string, unknown> = { updatedAt: new Date() };
     if (b.fixedLimitPct !== undefined) fields.fixedLimitPct = b.fixedLimitPct;
     if (b.monthlyIncomeCents !== undefined) fields.monthlyIncomeCents = b.monthlyIncomeCents ?? null;
-    const [s] = await sql`update user_settings set ${sql(fields)} where user_id = ${req.userId} returning *`;
+    const [s] = await sql`update entity_settings set ${sql(fields)} where entity_id = ${req.entityId} returning *`;
     return s;
   });
 }

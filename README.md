@@ -31,6 +31,10 @@ reserva de emergência e metas — com **captura automática das notificações 
 - **Página da categoria** (toque numa categoria no Início): lançamentos do mês, gráfico de 12 meses com a linha do limite,
   média dos meses anteriores, projeção para o fim do mês, onde mais gasta, e o limite mensal editável ali mesmo. Passou do
   limite, o Início mostra "Limite estourado" com as categorias.
+- **Entidades** (Ajustes › Entidades): uma para a família e uma para cada empresa, cada qual com contas, categorias,
+  lançamentos, cartões, contas a pagar, metas, sonhos e configurações próprias. Entidade do tipo "empresa" já vem com
+  categorias de negócio. O seletor fica no Início (celular) e na barra lateral (desktop). O token do celular pertence
+  à entidade em que foi gerado, então dá para ter uma macro para os apps do banco pessoal e outra para o PJ.
 - **Ajustes:** contas e cartões, categorias com limite mensal, tokens do celular, exportação CSV.
 - Funciona como app no celular (PWA: "Adicionar à tela inicial"), com tema claro/escuro automático.
 

@@ -29,7 +29,7 @@ export function addMonths(month: string, n: number) {
 }
 
 /** Contas vigentes no mês, com status de pagamento. */
-export async function billsForMonth(userId: string, month: string) {
+export async function billsForMonth(userId: string, entityId: string, month: string) {
   const start = `${month}-01`;
   const rows = await sql<any[]>`
     select b.*, c.name as category_name, c.icon as category_icon, c.color as category_color,
@@ -39,7 +39,7 @@ export async function billsForMonth(userId: string, month: string) {
     left join categories c on c.id = b.category_id
     left join accounts a on a.id = b.account_id
     left join bill_payments p on p.bill_id = b.id and p.period = ${month}
-    where b.user_id = ${userId} and not b.archived
+    where b.user_id = ${userId} and b.entity_id = ${entityId} and not b.archived
       and date_trunc('month', b.starts_on) <= ${start}::date
       and (b.ends_on is null or date_trunc('month', b.ends_on) >= ${start}::date)
     order by b.due_day, b.name`;
@@ -53,7 +53,7 @@ export async function billsForMonth(userId: string, month: string) {
   const txs = await sql<any[]>`
     select t.id, t.amount_cents, t.category_id, t.description, t.occurred_at, t.account_id
     from transactions t
-    where t.user_id = ${userId} and t.kind = 'despesa'
+    where t.user_id = ${userId} and t.entity_id = ${entityId} and t.kind = 'despesa'
       and t.occurred_at >= ${start}::date and t.occurred_at < (${start}::date + interval '1 month')
       and not exists (select 1 from bill_payments bp where bp.transaction_id = t.id)`;
 
@@ -93,37 +93,37 @@ export async function billsForMonth(userId: string, month: string) {
 }
 
 /** Renda líquida mensal de referência. */
-export async function referenceIncome(userId: string) {
-  const settings = await getSettings(userId);
+export async function referenceIncome(userId: string, entityId: string) {
+  const settings = await getSettings(userId, entityId);
   if (settings.monthlyIncomeCents) return { cents: settings.monthlyIncomeCents as number, source: 'manual' as const };
   const [avg] = await sql`
     select coalesce(sum(amount_cents), 0) / 3.0 as avg from transactions
-    where user_id = ${userId} and kind = 'receita'
+    where user_id = ${userId} and entity_id = ${entityId} and kind = 'receita'
       and occurred_at >= date_trunc('month', now()) - interval '3 months' and occurred_at < date_trunc('month', now())`;
   if (Number(avg.avg) > 0) return { cents: Math.round(Number(avg.avg)), source: 'media_3_meses' as const };
   const [cur] = await sql`
     select coalesce(sum(amount_cents), 0) as total from transactions
-    where user_id = ${userId} and kind = 'receita' and occurred_at >= date_trunc('month', now())`;
+    where user_id = ${userId} and entity_id = ${entityId} and kind = 'receita' and occurred_at >= date_trunc('month', now())`;
   return { cents: Number(cur.total), source: 'mes_atual' as const };
 }
 
 /** Gasto real por categoria no mês (para comparar com a estimativa das contas variáveis). */
-async function actualByCategory(userId: string, month: string) {
+async function actualByCategory(userId: string, entityId: string, month: string) {
   const start = `${month}-01`;
   const rows = await sql<any[]>`
     select category_id, sum(amount_cents) as total from transactions
-    where user_id = ${userId} and kind = 'despesa' and category_id is not null
+    where user_id = ${userId} and entity_id = ${entityId} and kind = 'despesa' and category_id is not null
       and occurred_at >= ${start}::date and occurred_at < (${start}::date + interval '1 month')
     group by category_id`;
   return Object.fromEntries(rows.map((r) => [r.categoryId, Number(r.total)])) as Record<string, number>;
 }
 
-export async function billsAnalysis(userId: string, month: string) {
+export async function billsAnalysis(userId: string, entityId: string, month: string) {
   const [bills, income, settings, actual] = await Promise.all([
-    billsForMonth(userId, month),
-    referenceIncome(userId),
-    getSettings(userId),
-    actualByCategory(userId, month),
+    billsForMonth(userId, entityId, month),
+    referenceIncome(userId, entityId),
+    getSettings(userId, entityId),
+    actualByCategory(userId, entityId, month),
   ]);
   const limitPct = settings.fixedLimitPct as number;
   const fixed = bills.filter((b) => b.nature === 'fixa');
@@ -164,7 +164,7 @@ export async function billsAnalysis(userId: string, month: string) {
   const horizon = addMonths(month, 12);
   const ending = (await sql<any[]>`
     select id, name, amount_cents, ends_on, installments from bills
-    where user_id = ${userId} and not archived and ends_on is not null
+    where user_id = ${userId} and entity_id = ${entityId} and not archived and ends_on is not null
       and to_char(ends_on, 'YYYY-MM') >= ${month} and to_char(ends_on, 'YYYY-MM') <= ${horizon}
     order by ends_on`).map((b) => ({ ...b, endsMonth: ym(new Date(b.endsOn + 'T00:00:00Z')) }));
 

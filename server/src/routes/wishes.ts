@@ -21,15 +21,15 @@ function addMonths(month: string, n: number) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-async function listWishes(userId: string) {
+async function listWishes(userId: string, entityId: string) {
   const [rows, goals, settings, analysis] = await Promise.all([
     sql<any[]>`select w.*, i.name as investment_name, i.id as investment_id
       from wishes w left join investments i on i.goal_id = w.goal_id and not i.archived
-      where w.user_id = ${userId}
+      where w.user_id = ${userId} and w.entity_id = ${entityId}
       order by case w.status when 'comprado' then 2 when 'desistiu' then 3 else 1 end, w.rank, w.created_at`,
-    goalsWithProgress(userId),
-    getSettings(userId),
-    billsAnalysis(userId, monthRange().month),
+    goalsWithProgress(userId, entityId),
+    getSettings(userId, entityId),
+    billsAnalysis(userId, entityId, monthRange().month),
   ]);
   const goalById = new Map(goals.map((g) => [g.id, g]));
   const monthly = settings.wishMonthlyCents ?? Math.max(0, analysis.freeCents);
@@ -66,8 +66,8 @@ async function listWishes(userId: string) {
   };
 }
 
-async function ownWish(userId: string, id: string) {
-  const [w] = await sql`select * from wishes where id = ${id} and user_id = ${userId}`;
+async function ownWish(userId: string, entityId: string, id: string) {
+  const [w] = await sql`select * from wishes where id = ${id} and user_id = ${userId} and entity_id = ${entityId}`;
   if (!w) throw new HttpError(404, 'Sonho não encontrado.');
   return w;
 }
@@ -77,21 +77,21 @@ const PRIVATE = [/^127\./, /^10\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./,
 export default async function wishRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
-  app.get('/api/wishes', async (req) => listWishes(req.userId));
+  app.get('/api/wishes', async (req) => listWishes(req.userId, req.entityId));
 
   app.post('/api/wishes', async (req) => {
     const b = parse(wishBody, req.body);
-    const [{ max }] = await sql`select coalesce(max(rank), -1) + 1 as max from wishes where user_id = ${req.userId}`;
+    const [{ max }] = await sql`select coalesce(max(rank), -1) + 1 as max from wishes where user_id = ${req.userId} and entity_id = ${req.entityId}`;
     const [w] = await sql`
-      insert into wishes (user_id, name, url, price_cents, image_url, notes, rank)
-      values (${req.userId}, ${b.name}, ${b.url ?? null}, ${b.priceCents}, ${b.imageUrl ?? null}, ${b.notes ?? null}, ${Number(max)})
+      insert into wishes (user_id, entity_id, name, url, price_cents, image_url, notes, rank)
+      values (${req.userId}, ${req.entityId}, ${b.name}, ${b.url ?? null}, ${b.priceCents}, ${b.imageUrl ?? null}, ${b.notes ?? null}, ${Number(max)})
       returning *`;
     return w;
   });
 
   app.patch('/api/wishes/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
-    const cur = await ownWish(req.userId, id);
+    const cur = await ownWish(req.userId, req.entityId, id);
     const b = onlySent(parse(wishBody.partial(), req.body), req.body);
     const raw = (req.body ?? {}) as Record<string, unknown>;
     const fields: Record<string, unknown> = {};
@@ -107,11 +107,11 @@ export default async function wishRoutes(app: FastifyInstance) {
 
   app.delete('/api/wishes/:id', async (req) => {
     const { id } = parse(zIdParam, req.params);
-    const w = await ownWish(req.userId, id);
+    const w = await ownWish(req.userId, req.entityId, id);
     await sql.begin(async (tx) => {
       await tx`delete from wishes where id = ${id}`;
       // a meta criada para o sonho vai junto (investimentos vinculados ficam, só perdem o vínculo)
-      if (w.goalId) await tx`delete from goals where id = ${w.goalId} and user_id = ${req.userId}`;
+      if (w.goalId) await tx`delete from goals where id = ${w.goalId} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     });
     return { ok: true };
   });
@@ -120,7 +120,7 @@ export default async function wishRoutes(app: FastifyInstance) {
   app.put('/api/wishes/order', async (req) => {
     const b = parse(z.object({ ids: z.array(z.string().uuid()).min(1).max(500) }), req.body);
     await sql.begin(async (tx) => {
-      for (let i = 0; i < b.ids.length; i++) await tx`update wishes set rank = ${i} where id = ${b.ids[i]} and user_id = ${req.userId}`;
+      for (let i = 0; i < b.ids.length; i++) await tx`update wishes set rank = ${i} where id = ${b.ids[i]} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     });
     return { ok: true };
   });
@@ -129,17 +129,17 @@ export default async function wishRoutes(app: FastifyInstance) {
   app.post('/api/wishes/:id/goal', async (req) => {
     const { id } = parse(zIdParam, req.params);
     const b = parse(z.object({ deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(), investmentId: z.string().uuid().nullish() }), req.body ?? {});
-    const w = await ownWish(req.userId, id);
+    const w = await ownWish(req.userId, req.entityId, id);
     let goalId = w.goalId;
     if (!goalId) {
-      const [g] = await sql`insert into goals (user_id, name, icon, target_cents, deadline) values (${req.userId}, ${w.name}, '🛍️', ${w.priceCents}, ${b.deadline ?? null}) returning id`;
+      const [g] = await sql`insert into goals (user_id, entity_id, name, icon, target_cents, deadline) values (${req.userId}, ${req.entityId}, ${w.name}, '🛍️', ${w.priceCents}, ${b.deadline ?? null}) returning id`;
       goalId = g.id;
       await sql`update wishes set goal_id = ${goalId}, status = 'juntando' where id = ${id}`;
     } else if (b.deadline !== undefined) {
       await sql`update goals set deadline = ${b.deadline ?? null} where id = ${goalId}`;
     }
     if (b.investmentId) {
-      const [inv] = await sql`select 1 from investments where id = ${b.investmentId} and user_id = ${req.userId}`;
+      const [inv] = await sql`select 1 from investments where id = ${b.investmentId} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
       if (!inv) throw new HttpError(400, 'Investimento inválido.');
       await sql`update investments set goal_id = ${goalId} where id = ${b.investmentId}`;
     }
@@ -149,8 +149,8 @@ export default async function wishRoutes(app: FastifyInstance) {
   /** Desvincula um investimento do sonho */
   app.delete('/api/wishes/:id/investment/:investmentId', async (req) => {
     const p = parse(z.object({ id: z.string().uuid(), investmentId: z.string().uuid() }), req.params);
-    const w = await ownWish(req.userId, p.id);
-    if (w.goalId) await sql`update investments set goal_id = null where id = ${p.investmentId} and goal_id = ${w.goalId} and user_id = ${req.userId}`;
+    const w = await ownWish(req.userId, req.entityId, p.id);
+    if (w.goalId) await sql`update investments set goal_id = null where id = ${p.investmentId} and goal_id = ${w.goalId} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
     return { ok: true };
   });
 
@@ -158,15 +158,15 @@ export default async function wishRoutes(app: FastifyInstance) {
   app.post('/api/wishes/:id/buy', async (req) => {
     const { id } = parse(zIdParam, req.params);
     const b = parse(z.object({ accountId: z.string().uuid().nullish(), amountCents: zPositiveCents.optional(), occurredAt: zDateTime.optional(), categoryId: z.string().uuid().nullish() }), req.body ?? {});
-    const w = await ownWish(req.userId, id);
+    const w = await ownWish(req.userId, req.entityId, id);
     let txId: string | null = null;
     if (b.accountId) {
       let categoryId = b.categoryId ?? null;
       if (!categoryId) {
-        const [c] = await sql`select id from categories where user_id = ${req.userId} and kind = 'despesa' and name = 'Compras'`;
+        const [c] = await sql`select id from categories where user_id = ${req.userId} and entity_id = ${req.entityId} and kind = 'despesa' and name = 'Compras'`;
         categoryId = c?.id ?? null;
       }
-      const t = await insertTx(req.userId, { accountId: b.accountId, categoryId, kind: 'despesa', amountCents: b.amountCents ?? w.priceCents, description: w.name, occurredAt: b.occurredAt ?? new Date().toISOString(), notes: null });
+      const t = await insertTx(req.userId, req.entityId, { accountId: b.accountId, categoryId, kind: 'despesa', amountCents: b.amountCents ?? w.priceCents, description: w.name, occurredAt: b.occurredAt ?? new Date().toISOString(), notes: null });
       txId = t.id;
     }
     await sql`update wishes set status = 'comprado', bought_at = current_date, bought_transaction_id = ${txId} where id = ${id}`;
@@ -176,8 +176,8 @@ export default async function wishRoutes(app: FastifyInstance) {
 
   app.put('/api/wishes/settings', async (req) => {
     const b = parse(z.object({ wishMonthlyCents: z.coerce.number().int().positive().nullish() }), req.body);
-    await getSettings(req.userId);
-    const [s] = await sql`update user_settings set wish_monthly_cents = ${b.wishMonthlyCents ?? null}, updated_at = now() where user_id = ${req.userId} returning *`;
+    await getSettings(req.userId, req.entityId);
+    const [s] = await sql`update entity_settings set wish_monthly_cents = ${b.wishMonthlyCents ?? null}, updated_at = now() where entity_id = ${req.entityId} returning *`;
     return s;
   });
 

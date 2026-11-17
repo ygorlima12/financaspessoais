@@ -96,7 +96,7 @@ function normalizePayload(req: FastifyRequest, body: any) {
 type Ingest = { packageName?: string; appName?: string; title?: string; text?: string; timestamp?: string };
 
 /** Processa uma notificação (vinda do celular ou colada à mão): dedupe, interpretação, caixa de entrada, confirmação automática. */
-async function ingestNotification(userId: string, deviceId: string | null, p: Ingest, log: (status: string, result: string) => Promise<unknown>) {
+async function ingestNotification(userId: string, entityId: string, deviceId: string | null, p: Ingest, log: (status: string, result: string) => Promise<unknown>) {
   const text = p.text ?? p.title!;
   const receivedAt = p.timestamp && !Number.isNaN(Date.parse(p.timestamp)) ? new Date(p.timestamp) : new Date();
   if (Math.abs(receivedAt.getTime() - Date.now()) > 7 * 864e5) receivedAt.setTime(Date.now());
@@ -104,7 +104,7 @@ async function ingestNotification(userId: string, deviceId: string | null, p: In
   // 1) Duplicata exata (Android costuma repostar a mesma notificação)
   const fingerprint = sha256(`${p.packageName ?? ''}|${fold(`${p.title ?? ''} ${text}`).replace(/\s+/g, ' ').trim()}`);
   const [same] = await sql`
-    select id from captures where user_id = ${userId} and fingerprint = ${fingerprint}
+    select id from captures where user_id = ${userId} and entity_id = ${entityId} and fingerprint = ${fingerprint}
       and received_at > ${receivedAt}::timestamptz - interval '30 minutes'
     limit 1`;
   if (same) { await log('ok', 'duplicada (mesma notificação há menos de 30 min)'); return { status: 'duplicada', id: same.id }; }
@@ -120,7 +120,7 @@ async function ingestNotification(userId: string, deviceId: string | null, p: In
   let duplicateOf: string | null = null;
   if (r.isTransaction) {
     const [near] = await sql`
-      select id from captures where user_id = ${userId} and amount_cents = ${r.amountCents} and kind = ${r.kind}
+      select id from captures where user_id = ${userId} and entity_id = ${entityId} and amount_cents = ${r.amountCents} and kind = ${r.kind}
         and status in ('pendente','confirmada') and fingerprint <> ${fingerprint}
         and received_at between ${receivedAt}::timestamptz - interval '5 minutes' and ${receivedAt}::timestamptz + interval '5 minutes'
       limit 1`;
@@ -128,26 +128,27 @@ async function ingestNotification(userId: string, deviceId: string | null, p: In
   }
 
   const [cap] = await sql`
-    insert into captures (user_id, device_id, package_name, app_name, title, text, received_at, amount_cents, kind,
+    insert into captures (user_id, entity_id, device_id, package_name, app_name, title, text, received_at, amount_cents, kind,
                           merchant, bank, channel, confidence, status, discard_reason, duplicate_of, fingerprint)
-    values (${userId}, ${deviceId}, ${p.packageName ?? null}, ${p.appName ?? null}, ${p.title ?? null}, ${text},
+    values (${userId}, ${entityId}, ${deviceId}, ${p.packageName ?? null}, ${p.appName ?? null}, ${p.title ?? null}, ${text},
             ${receivedAt.toISOString()}, ${r.amountCents}, ${r.kind}, ${r.merchant}, ${r.bank}, ${r.channel}, ${r.confidence},
             ${r.isTransaction ? 'pendente' : 'descartada'}, ${r.isTransaction ? r.hint ?? null : r.discardReason ?? null},
             ${duplicateOf}, ${fingerprint})
     returning id, status`;
 
   // Limpeza: descartadas com mais de 30 dias
-  sql`delete from captures where user_id = ${userId} and status = 'descartada' and received_at < now() - interval '30 days'`.catch(() => {});
+  sql`delete from captures where user_id = ${userId} and entity_id = ${entityId} and status = 'descartada' and received_at < now() - interval '30 days'`.catch(() => {});
 
   // 4) Confirmação automática (opcional)
   if (r.isTransaction && r.confidence === 'alta' && !duplicateOf && p.packageName) {
-    const settings = await getSettings(userId);
+    const settings = await getSettings(userId, entityId);
     const [link] = await sql`select account_id, auto_confirm from app_links
-      where user_id = ${userId} and package_name = ${p.packageName} and channel = ${r.channel}`;
+      where user_id = ${userId} and entity_id = ${entityId} and package_name = ${p.packageName} and channel = ${r.channel}`;
     if (link?.accountId && (link.autoConfirm || settings.autoConfirmCaptures)) {
-      const categoryId = await suggestCategory(userId, r.merchant);
+      const categoryId = await suggestCategory(userId, entityId, r.merchant);
       const t = await insertTx(
         userId,
+        entityId,
         {
           accountId: link.accountId,
           categoryId,
@@ -179,7 +180,7 @@ export default async function captureRoutes(app: FastifyInstance) {
       const body = bodyToObject(req.body);
       const token = deviceToken(req, body);
       if (!token) return reply.code(401).send({ error: 'token ausente. Envie no cabeçalho "Authorization: Bearer SEU_TOKEN" ou como ?token=' });
-      const [device] = await sql`select id, user_id from devices where token_hash = ${sha256(token)}`;
+      const [device] = await sql`select id, user_id, entity_id from devices where token_hash = ${sha256(token)}`;
       if (!device) return reply.code(401).send({ error: 'token inválido. Gere um novo em Ajustes › Celular' });
       const log = (status: string, result: string) =>
         sql`update devices set last_seen_at = now(), last_status = ${status}, last_result = ${result.slice(0, 300)}, last_payload = ${summarizeForLog(req, body)} where id = ${device.id}`.catch(() => {});
@@ -192,7 +193,7 @@ export default async function captureRoutes(app: FastifyInstance) {
           : 'texto da notificação ausente: nenhum campo "text" chegou (veja os campos recebidos abaixo)');
         return reply.code(400).send({ error: 'texto da notificação ausente. Envie o texto no campo "text".' });
       }
-      return ingestNotification(device.userId, device.id, p, log);
+      return ingestNotification(device.userId, device.entityId, device.id, p, log);
     },
   );
 
@@ -217,11 +218,11 @@ export default async function captureRoutes(app: FastifyInstance) {
         from captures c
         left join app_links l on l.user_id = c.user_id and l.package_name = c.package_name and l.channel = c.channel
         left join transactions t on t.id = c.transaction_id
-        where c.user_id = ${req.userId} and c.status = ${q.status}
+        where c.user_id = ${req.userId} and c.entity_id = ${req.entityId} and c.status = ${q.status}
         order by c.received_at desc limit 200`;
       const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
       const openBills = q.status === 'pendente'
-        ? (await billsForMonth(req.userId, monthRange().month)).filter((b) => b.status !== 'paga').map((b) => ({ id: b.id, name: b.name, amountCents: b.amountCents, dueDate: b.dueDate, categoryId: b.categoryId, accountId: b.accountId, nature: b.nature }))
+        ? (await billsForMonth(req.userId, req.entityId, monthRange().month)).filter((b) => b.status !== 'paga').map((b) => ({ id: b.id, name: b.name, amountCents: b.amountCents, dueDate: b.dueDate, categoryId: b.categoryId, accountId: b.accountId, nature: b.nature }))
         : [];
       return Promise.all(
         rows.map(async (c: any) => {
@@ -231,7 +232,7 @@ export default async function captureRoutes(app: FastifyInstance) {
           const suggested = byName ?? byAmount ?? null;
           return {
             ...c,
-            suggestedCategoryId: suggested?.categoryId ?? (await suggestCategory(req.userId, c.merchant)),
+            suggestedCategoryId: suggested?.categoryId ?? (await suggestCategory(req.userId, req.entityId, c.merchant)),
             suggestedBillId: suggested?.id ?? null,
             openBills,
           };
@@ -242,7 +243,7 @@ export default async function captureRoutes(app: FastifyInstance) {
     /** Cola uma notificação à mão (ex.: do histórico de notificações do Android) */
     priv.post('/api/captures/manual', async (req) => {
       const b = parse(z.object({ text: z.string().trim().min(3).max(2000), title: z.string().trim().max(200).optional(), appName: z.string().trim().max(80).optional(), occurredAt: zDateTime.optional() }), req.body);
-      const r = await ingestNotification(req.userId, null, { text: b.text, title: b.title, appName: b.appName, packageName: b.appName, timestamp: b.occurredAt }, async () => {});
+      const r = await ingestNotification(req.userId, req.entityId, null, { text: b.text, title: b.title, appName: b.appName, packageName: b.appName, timestamp: b.occurredAt }, async () => {});
       if (r.status === 'duplicada') throw new HttpError(409, 'Essa notificação já está na Caixa de entrada.');
       return r;
     });
@@ -254,7 +255,7 @@ export default async function captureRoutes(app: FastifyInstance) {
     });
 
     priv.get('/api/captures/count', async (req) => {
-      const [r] = await sql`select count(*)::int as count from captures where user_id = ${req.userId} and status = 'pendente'`;
+      const [r] = await sql`select count(*)::int as count from captures where user_id = ${req.userId} and entity_id = ${req.entityId} and status = 'pendente'`;
       return r;
     });
 
@@ -277,28 +278,29 @@ export default async function captureRoutes(app: FastifyInstance) {
         }),
         req.body,
       );
-      const [cap] = await sql`select * from captures where id = ${id} and user_id = ${req.userId}`;
+      const [cap] = await sql`select * from captures where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
       if (!cap) throw new HttpError(404, 'Notificação não encontrada.');
       if (cap.status === 'confirmada') throw new HttpError(409, 'Essa notificação já foi lançada.');
       const t = await insertTx(
         req.userId,
+        req.entityId,
         { ...b, occurredAt: b.occurredAt ?? new Date(cap.receivedAt).toISOString(), notes: null },
         'notificacao',
       );
       await sql`update captures set status = 'confirmada', transaction_id = ${t.id} where id = ${id}`;
-      if (b.reserved) await reserveTransaction(req.userId, t.id);
+      if (b.reserved) await reserveTransaction(req.userId, req.entityId, t.id);
       if (b.billId) {
-        const [bill] = await sql`select id from bills where id = ${b.billId} and user_id = ${req.userId}`;
+        const [bill] = await sql`select id from bills where id = ${b.billId} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
         if (!bill) throw new HttpError(400, 'Conta inválida.');
         const period = b.billMonth ?? monthRange().month;
         await sql`
           insert into bill_payments (bill_id, period, amount_cents, transaction_id) values (${b.billId}, ${period}, ${t.amountCents}, ${t.id})
           on conflict (bill_id, period) do update set amount_cents = excluded.amount_cents, transaction_id = excluded.transaction_id, paid_at = now()`;
       }
-      if (b.kind !== 'transferencia') await learnMerchant(req.userId, cap.merchant ?? b.description, b.categoryId ?? null);
+      if (b.kind !== 'transferencia') await learnMerchant(req.userId, req.entityId, cap.merchant ?? b.description, b.categoryId ?? null);
       if (b.rememberAccount && cap.packageName) {
         await sql`
-          insert into app_links (user_id, package_name, channel, account_id) values (${req.userId}, ${cap.packageName}, ${cap.channel}, ${b.accountId})
+          insert into app_links (user_id, entity_id, package_name, channel, account_id) values (${req.userId}, ${req.entityId}, ${cap.packageName}, ${cap.channel}, ${b.accountId})
           on conflict (user_id, package_name, channel) do update set account_id = excluded.account_id`;
       }
       return { ok: true, transaction: t };
@@ -306,13 +308,13 @@ export default async function captureRoutes(app: FastifyInstance) {
 
     priv.post('/api/captures/:id/ignore', async (req) => {
       const { id } = parse(zIdParam, req.params);
-      await sql`update captures set status = 'ignorada' where id = ${id} and user_id = ${req.userId} and status <> 'confirmada'`;
+      await sql`update captures set status = 'ignorada' where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId} and status <> 'confirmada'`;
       return { ok: true };
     });
 
     priv.post('/api/captures/:id/restore', async (req) => {
       const { id } = parse(zIdParam, req.params);
-      const [cap] = await sql`select * from captures where id = ${id} and user_id = ${req.userId}`;
+      const [cap] = await sql`select * from captures where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
       if (!cap) throw new HttpError(404, 'Notificação não encontrada.');
       if (cap.status === 'confirmada') throw new HttpError(409, 'Já lançada.');
       // Restaurar uma descartada: tenta achar ao menos o valor
@@ -323,21 +325,21 @@ export default async function captureRoutes(app: FastifyInstance) {
 
     // -------- Dispositivos (tokens do webhook) --------
     priv.get('/api/devices', async (req) => {
-      return sql`select id, name, token_hint, last_seen_at, last_status, last_result, last_payload, created_at from devices where user_id = ${req.userId} order by created_at`;
+      return sql`select id, name, token_hint, last_seen_at, last_status, last_result, last_payload, created_at from devices where user_id = ${req.userId} and entity_id = ${req.entityId} order by created_at`;
     });
 
     priv.post('/api/devices', async (req) => {
       const b = parse(z.object({ name: z.string().trim().min(1).max(40) }), req.body);
       const token = 'mrf_' + randomBytes(24).toString('base64url');
       const [d] = await sql`
-        insert into devices (user_id, name, token_hash, token_hint) values (${req.userId}, ${b.name}, ${sha256(token)}, ${token.slice(-4)})
+        insert into devices (user_id, entity_id, name, token_hash, token_hint) values (${req.userId}, ${req.entityId}, ${b.name}, ${sha256(token)}, ${token.slice(-4)})
         returning id, name, token_hint, created_at`;
       return { ...d, token };
     });
 
     priv.delete('/api/devices/:id', async (req) => {
       const { id } = parse(zIdParam, req.params);
-      await sql`delete from devices where id = ${id} and user_id = ${req.userId}`;
+      await sql`delete from devices where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
       return { ok: true };
     });
 
@@ -348,7 +350,7 @@ export default async function captureRoutes(app: FastifyInstance) {
           l.account_id, coalesce(l.auto_confirm, false) as auto_confirm
         from captures p
         left join app_links l on l.user_id = p.user_id and l.package_name = p.package_name and l.channel = p.channel
-        where p.user_id = ${req.userId} and p.package_name is not null and p.status <> 'descartada'
+        where p.user_id = ${req.userId} and p.entity_id = ${req.entityId} and p.package_name is not null and p.status <> 'descartada'
         group by p.package_name, p.channel, l.account_id, l.auto_confirm
         order by max(p.bank), p.channel`;
     });
@@ -364,12 +366,12 @@ export default async function captureRoutes(app: FastifyInstance) {
         req.body,
       );
       if (b.accountId) {
-        const [a] = await sql`select 1 from accounts where id = ${b.accountId} and user_id = ${req.userId}`;
+        const [a] = await sql`select 1 from accounts where id = ${b.accountId} and user_id = ${req.userId} and entity_id = ${req.entityId}`;
         if (!a) throw new HttpError(400, 'Conta inválida.');
       }
       await sql`
-        insert into app_links (user_id, package_name, channel, account_id, auto_confirm)
-        values (${req.userId}, ${b.packageName}, ${b.channel}, ${b.accountId}, ${b.autoConfirm})
+        insert into app_links (user_id, entity_id, package_name, channel, account_id, auto_confirm)
+        values (${req.userId}, ${req.entityId}, ${b.packageName}, ${b.channel}, ${b.accountId}, ${b.autoConfirm})
         on conflict (user_id, package_name, channel) do update set account_id = excluded.account_id, auto_confirm = excluded.auto_confirm`;
       return { ok: true };
     });

@@ -36,7 +36,7 @@ export function openInvoiceMonth(card: { closingDay: number | null; dueDay: numb
   return month;
 }
 
-export async function invoiceFor(userId: string, card: any, month: string, withItems = false) {
+export async function invoiceFor(userId: string, entityId: string, card: any, month: string, withItems = false) {
   const w = invoiceWindow(card, month);
   const today = new Date().toISOString().slice(0, 10);
   // Compras e estornos no período (fechamento anterior, fechamento]
@@ -44,16 +44,16 @@ export async function invoiceFor(userId: string, card: any, month: string, withI
     select coalesce(sum(amount_cents) filter (where kind = 'despesa'), 0) as purchases,
            coalesce(sum(amount_cents) filter (where kind = 'receita'), 0) as credits
     from transactions
-    where user_id = ${userId} and account_id = ${card.id} and kind in ('despesa','receita')
+    where user_id = ${userId} and entity_id = ${entityId} and account_id = ${card.id} and kind in ('despesa','receita')
       and occurred_at >= (${w.start}::date + interval '1 day') and occurred_at < (${w.end}::date + interval '1 day')`;
   // Pagamentos: transferências que entram no cartão entre este fechamento e o próximo
   const [unres] = await sql`
     select coalesce(sum(amount_cents), 0) as total, count(*)::int as count from transactions
-    where user_id = ${userId} and account_id = ${card.id} and kind = 'despesa' and reserved_at is null
+    where user_id = ${userId} and entity_id = ${entityId} and account_id = ${card.id} and kind = 'despesa' and reserved_at is null
       and occurred_at >= (${w.start}::date + interval '1 day') and occurred_at < (${w.end}::date + interval '1 day')`;
   const [pay] = await sql`
     select coalesce(sum(amount_cents), 0) as paid from transactions
-    where user_id = ${userId} and kind = 'transferencia' and transfer_account_id = ${card.id}
+    where user_id = ${userId} and entity_id = ${entityId} and kind = 'transferencia' and transfer_account_id = ${card.id}
       and occurred_at >= (${w.end}::date + interval '1 day') and occurred_at < (${w.nextEnd}::date + interval '1 day')`;
   const total = Number(sums.purchases) - Number(sums.credits);
   const paid = Number(pay.paid);
@@ -70,13 +70,13 @@ export async function invoiceFor(userId: string, card: any, month: string, withI
       select t.id, t.kind, t.amount_cents, t.description, t.occurred_at, t.source, t.reserved_at, t.reserve_transaction_id,
         c.name as category_name, c.icon as category_icon, c.color as category_color
       from transactions t left join categories c on c.id = t.category_id
-      where t.user_id = ${userId} and t.account_id = ${card.id} and t.kind in ('despesa','receita')
+      where t.user_id = ${userId} and t.entity_id = ${entityId} and t.account_id = ${card.id} and t.kind in ('despesa','receita')
         and t.occurred_at >= (${w.start}::date + interval '1 day') and t.occurred_at < (${w.end}::date + interval '1 day')
       order by t.occurred_at desc`;
     payments = await sql`
       select t.id, t.amount_cents, t.occurred_at, a.name as from_account
       from transactions t join accounts a on a.id = t.account_id
-      where t.user_id = ${userId} and t.kind = 'transferencia' and t.transfer_account_id = ${card.id}
+      where t.user_id = ${userId} and t.entity_id = ${entityId} and t.kind = 'transferencia' and t.transfer_account_id = ${card.id}
         and t.occurred_at >= (${w.end}::date + interval '1 day') and t.occurred_at < (${w.nextEnd}::date + interval '1 day')
       order by t.occurred_at desc`;
   }
@@ -98,8 +98,8 @@ export async function invoiceFor(userId: string, card: any, month: string, withI
   };
 }
 
-export async function cardsSummary(userId: string) {
-  const cards = await sql<any[]>`select * from accounts where user_id = ${userId} and type = 'cartao' and not archived order by created_at`;
+export async function cardsSummary(userId: string, entityId: string) {
+  const cards = await sql<any[]>`select * from accounts where user_id = ${userId} and entity_id = ${entityId} and type = 'cartao' and not archived order by created_at`;
   const out = [];
   for (const c of cards) {
     const openMonth = openInvoiceMonth(c);
@@ -108,10 +108,10 @@ export async function cardsSummary(userId: string) {
       return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
     })();
     const [open, last, bal] = await Promise.all([
-      invoiceFor(userId, c, openMonth),
-      invoiceFor(userId, c, prevMonth),
+      invoiceFor(userId, entityId, c, openMonth),
+      invoiceFor(userId, entityId, c, prevMonth),
       sql`select coalesce(sum(case when kind in ('receita') or (kind = 'transferencia' and transfer_account_id = ${c.id}) then amount_cents else -amount_cents end), 0) as v
-          from transactions where user_id = ${userId} and (account_id = ${c.id} or transfer_account_id = ${c.id})`,
+          from transactions where user_id = ${userId} and entity_id = ${entityId} and (account_id = ${c.id} or transfer_account_id = ${c.id})`,
     ]);
     const owedCents = -(c.initialBalanceCents + Number(bal[0].v)); // positivo = deve
     out.push({

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { api } from './api'
-import { DataProvider, type User } from './data'
+import { DataProvider, useData, type Entity, type User } from './data'
 import { useApi } from './hooks'
 import { Icons, Spinner } from './components/ui'
 import Login from './pages/Login'
@@ -14,6 +14,24 @@ import Inbox from './pages/Inbox'
 import Growth from './pages/Growth'
 import Settings from './pages/Settings'
 
+function EntityChip() {
+  const { entity, entities, switchEntity } = useData()
+  const [open, setOpen] = useState(false)
+  if (entities.length <= 1) return null
+  return (
+    <div style={{ position: 'relative' }}>
+      <button className="entity-chip" onClick={() => setOpen(!open)} style={{ borderColor: entity.color }}>{entity.icon} {entity.name} ▾</button>
+      {open && (
+        <div className="entity-menu">
+          {entities.map((e) => (
+            <button key={e.id} className={e.id === entity.id ? 'on' : ''} onClick={() => { setOpen(false); if (e.id !== entity.id) switchEntity(e.id) }}>{e.icon} {e.name}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TabBar() {
   const count = useApi<{ count: number }>('/captures/count')
   useEffect(() => {
@@ -24,6 +42,7 @@ function TabBar() {
   return (
     <nav className="tabbar">
       <div className="brand"><div className="brand-logo">↗</div>Meu Rumo</div>
+      <EntityChip />
       <NavLink to="/" end>{Icons.home}<span>Início</span></NavLink>
       <NavLink to="/contas">{Icons.bills}<span>Contas</span></NavLink>
       <NavLink to="/cartao">{Icons.card}<span>Cartão</span></NavLink>
@@ -37,20 +56,22 @@ function TabBar() {
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
+  const [entity, setEntity] = useState<Entity | null>(null)
 
   useEffect(() => {
-    api<{ user: User }>('/auth/me').then((r) => setUser(r.user)).catch(() => setUser(null))
+    api<{ user: User; entity: Entity }>('/auth/me').then((r) => { setEntity(r.entity); setUser(r.user) }).catch(() => setUser(null))
     const out = () => setUser(null)
     window.addEventListener('mrf:logout', out)
     return () => window.removeEventListener('mrf:logout', out)
   }, [])
 
   if (user === undefined) return <Spinner />
-  if (user === null) return <Login onLogin={setUser} />
+  if (user === null) return <Login onLogin={() => { api<{ user: User; entity: Entity }>('/auth/me').then((r) => { setEntity(r.entity); setUser(r.user) }) }} />
+  if (!entity) return <Spinner />
 
   return (
     <BrowserRouter>
-      <DataProvider user={user}>
+      <DataProvider user={user} entity={entity}>
         <div className="app">
           <TabBar />
           <main className="main">
