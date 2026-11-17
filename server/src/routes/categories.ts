@@ -35,6 +35,43 @@ export default async function categoryRoutes(app: FastifyInstance) {
     return { month, categories: rows };
   });
 
+  /** Detalhe de uma categoria: lançamentos do mês + histórico de 12 meses + limite */
+  app.get('/api/categories/:id', async (req) => {
+    const { id } = parse(zIdParam, req.params);
+    const q = parse(z.object({ month: zMonth.optional() }), req.query);
+    const { start, end, month } = monthRange(q.month);
+    const [c] = await sql`select * from categories where id = ${id} and user_id = ${req.userId}`;
+    if (!c) throw new HttpError(404, 'Categoria não encontrada.');
+    const [transactions, history, top] = await Promise.all([
+      sql`
+        select t.id, t.kind, t.amount_cents, t.description, t.occurred_at, t.source, t.reserved_at,
+          a.name as account_name, a.type as account_type
+        from transactions t join accounts a on a.id = t.account_id
+        where t.user_id = ${req.userId} and t.category_id = ${id}
+          and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
+        order by t.occurred_at desc`,
+      sql`
+        with m as (select date_trunc('month', now()) - (n || ' months')::interval as start_at from generate_series(0, 11) n)
+        select to_char(m.start_at, 'YYYY-MM') as month, coalesce(sum(t.amount_cents), 0) as total_cents, count(t.id)::int as count
+        from m left join transactions t on t.user_id = ${req.userId} and t.category_id = ${id} and t.kind = ${c.kind}
+          and t.occurred_at >= m.start_at and t.occurred_at < m.start_at + interval '1 month'
+        group by m.start_at order by m.start_at`,
+      sql`
+        select lower(description) as key, max(description) as description, sum(amount_cents) as total_cents, count(*)::int as count
+        from transactions where user_id = ${req.userId} and category_id = ${id} and kind = ${c.kind}
+          and occurred_at >= date_trunc('month', now()) - interval '5 months'
+        group by lower(description) order by total_cents desc limit 6`,
+    ]);
+    const totalCents = (transactions as any[]).reduce((s, t) => s + t.amountCents, 0);
+    const past = (history as any[]).slice(0, -1).filter((h) => h.totalCents > 0);
+    const avgCents = past.length ? Math.round(past.reduce((s, h) => s + h.totalCents, 0) / past.length) : 0;
+    const today = new Date();
+    const dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    const isCurrent = month === `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const projectedCents = isCurrent && today.getDate() > 2 ? Math.round((totalCents / today.getDate()) * dim) : null;
+    return { category: c, month, transactions, totalCents, history, avgCents, projectedCents, topMerchants: top };
+  });
+
   app.post('/api/categories', async (req) => {
     const b = parse(categoryBody, req.body);
     const [old] = await sql`select id, archived from categories where user_id = ${req.userId} and name = ${b.name} and kind = ${b.kind}`;

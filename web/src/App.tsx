@@ -9,6 +9,7 @@ import Home from './pages/Home'
 import Transactions from './pages/Transactions'
 import Bills from './pages/Bills'
 import Cards from './pages/Cards'
+import Category from './pages/Category'
 import Inbox from './pages/Inbox'
 import Growth from './pages/Growth'
 import Settings from './pages/Settings'
@@ -58,6 +59,7 @@ export default function App() {
               <Route path="/lancamentos" element={<Transactions />} />
               <Route path="/contas" element={<Bills />} />
               <Route path="/cartao" element={<Cards />} />
+              <Route path="/categoria/:id" element={<Category />} />
               <Route path="/entrada" element={<Inbox />} />
               <Route path="/crescer" element={<Growth />} />
               <Route path="/ajustes" element={<Settings onLogout={() => setUser(null)} />} />

@@ -57,6 +57,19 @@ export default function Home() {
         </Link>
       )}
 
+      {d.budgets.some((b: any) => b.spentCents > b.monthlyBudgetCents) && (
+        <div className="card" style={{ marginBottom: 12, background: 'color-mix(in srgb, var(--red) 10%, var(--bg-elev))' }}>
+          <strong>⚠️ Limite estourado</strong>
+          <div className="small" style={{ marginTop: 4 }}>
+            {d.budgets.filter((b: any) => b.spentCents > b.monthlyBudgetCents).map((b: any) => (
+              <Link key={b.id} to={`/categoria/${b.id}`} style={{ display: 'block', color: 'inherit', padding: '2px 0' }}>
+                {b.icon} {b.name}: {money(b.spentCents)} de {money(b.monthlyBudgetCents)} <span className="neg">(+{money(b.spentCents - b.monthlyBudgetCents)})</span> ›
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {d.cardsUnreserved?.length > 0 && (
         <Link to="/cartao" className="card row" style={{ marginBottom: 12, color: 'inherit', background: 'color-mix(in srgb, var(--orange) 12%, var(--bg-elev))' }}>
           <div className="icon-dot" style={{ background: 'color-mix(in srgb, var(--orange) 25%, transparent)' }}>💳</div>
@@ -166,15 +179,22 @@ export default function Home() {
         {d.expensesByCategory.length === 0 ? (
           <div className="muted small">Nenhuma saída categorizada neste mês.</div>
         ) : (
-          d.expensesByCategory.slice(0, 8).map((c: any) => (
-            <div key={c.id ?? 'none'} style={{ marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, marginBottom: 4 }}>
-                <span>{c.icon} {c.name}</span>
-                <span className="num">{money(c.totalCents)} <span className="muted small">{pct(c.totalCents / totalExp)}</span></span>
-              </div>
-              <Progress value={c.totalCents / d.expensesByCategory[0].totalCents} color={c.color} />
-            </div>
-          ))
+          d.expensesByCategory.slice(0, 8).map((c: any) => {
+            const b = d.budgets.find((x: any) => x.id === c.id)
+            const over = b && c.totalCents > b.monthlyBudgetCents
+            const inner = (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, marginBottom: 4 }}>
+                  <span>{c.icon} {c.name}{over ? <span className="pill red" style={{ marginLeft: 6 }}>limite</span> : ''}</span>
+                  <span className="num">{money(c.totalCents)} <span className="muted small">{pct(c.totalCents / totalExp)}</span>{c.id ? <span className="chev" style={{ marginLeft: 4 }}>›</span> : null}</span>
+                </div>
+                <Progress value={c.totalCents / d.expensesByCategory[0].totalCents} color={over ? 'var(--red)' : c.color} />
+              </>
+            )
+            return c.id
+              ? <Link key={c.id} to={`/categoria/${c.id}`} style={{ display: 'block', marginBottom: 12, color: 'inherit' }}>{inner}</Link>
+              : <div key="none" style={{ marginBottom: 12 }}>{inner}</div>
+          })
         )}
       </div>
 
@@ -185,13 +205,13 @@ export default function Home() {
             {d.budgets.map((b: any) => {
               const r = b.spentCents / b.monthlyBudgetCents
               return (
-                <div key={b.id} style={{ marginBottom: 12 }}>
+                <Link key={b.id} to={`/categoria/${b.id}`} style={{ display: 'block', marginBottom: 12, color: 'inherit' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, marginBottom: 4 }}>
-                    <span>{b.icon} {b.name}</span>
+                    <span>{b.icon} {b.name}{r > 1 ? ' ⚠️' : ''}</span>
                     <span className={`num ${r > 1 ? 'neg' : ''}`}>{money(b.spentCents)} <span className="muted small">/ {money(b.monthlyBudgetCents)}</span></span>
                   </div>
                   <Progress value={r} color={r > 1 ? 'var(--red)' : r > 0.8 ? 'var(--orange)' : 'var(--green)'} />
-                </div>
+                </Link>
               )
             })}
           </div>

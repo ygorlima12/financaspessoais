@@ -28,6 +28,9 @@ reserva de emergência e metas — com **captura automática das notificações 
   como vai pagar. O app monta o retrato do momento (saldos, contas não pagas, cartão, reserva, metas, orçamento) e responde
   **pode / com cuidado / melhor não**, com os números. Com uma chave da API da Anthropic (Ajustes › Perfil), a Claude
   escreve a análise e sugere alternativas; sem chave, valem só as regras.
+- **Página da categoria** (toque numa categoria no Início): lançamentos do mês, gráfico de 12 meses com a linha do limite,
+  média dos meses anteriores, projeção para o fim do mês, onde mais gasta, e o limite mensal editável ali mesmo. Passou do
+  limite, o Início mostra "Limite estourado" com as categorias.
 - **Ajustes:** contas e cartões, categorias com limite mensal, tokens do celular, exportação CSV.
 - Funciona como app no celular (PWA: "Adicionar à tela inicial"), com tema claro/escuro automático.
 

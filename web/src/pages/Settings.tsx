@@ -175,7 +175,7 @@ function Categories() {
         {list.map((c) => (
           <button key={c.id} className="row" onClick={() => setEdit(c)}>
             <div className="icon-dot" style={{ background: `color-mix(in srgb, ${c.color} 22%, transparent)` }}>{c.icon}</div>
-            <div className="grow"><div className="title">{c.name}</div></div>
+            <div className="grow"><div className="title">{c.name}</div><Link to={`/categoria/${c.id}`} className="meta" onClick={(e) => e.stopPropagation()}>ver lançamentos ›</Link></div>
             {c.monthlyBudgetCents != null && <div className="end small muted num">limite {money(c.monthlyBudgetCents)}</div>}
             <span className="chev">›</span>
           </button>
