@@ -301,7 +301,7 @@ export default async function captureRoutes(app: FastifyInstance) {
       if (b.rememberAccount && cap.packageName) {
         await sql`
           insert into app_links (user_id, entity_id, package_name, channel, account_id) values (${req.userId}, ${req.entityId}, ${cap.packageName}, ${cap.channel}, ${b.accountId})
-          on conflict (user_id, package_name, channel) do update set account_id = excluded.account_id`;
+          on conflict (entity_id, package_name, channel) do update set account_id = excluded.account_id`;
       }
       return { ok: true, transaction: t };
     });
@@ -372,7 +372,7 @@ export default async function captureRoutes(app: FastifyInstance) {
       await sql`
         insert into app_links (user_id, entity_id, package_name, channel, account_id, auto_confirm)
         values (${req.userId}, ${req.entityId}, ${b.packageName}, ${b.channel}, ${b.accountId}, ${b.autoConfirm})
-        on conflict (user_id, package_name, channel) do update set account_id = excluded.account_id, auto_confirm = excluded.auto_confirm`;
+        on conflict (entity_id, package_name, channel) do update set account_id = excluded.account_id, auto_confirm = excluded.auto_confirm`;
       return { ok: true };
     });
   });

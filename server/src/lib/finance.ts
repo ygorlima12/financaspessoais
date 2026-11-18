@@ -193,5 +193,5 @@ export async function learnMerchant(userId: string, entityId: string, merchant: 
   if (key.length < 3) return;
   await sql`
     insert into merchant_rules (user_id, entity_id, pattern, category_id) values (${userId}, ${entityId}, ${key}, ${categoryId})
-    on conflict (user_id, pattern) do update set category_id = excluded.category_id`;
+    on conflict (entity_id, pattern) do update set category_id = excluded.category_id`;
 }
