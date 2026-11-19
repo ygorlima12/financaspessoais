@@ -16,6 +16,8 @@ export const txBody = z.object({
   notes: z.string().trim().max(500).nullish(),
   /** compra no cartão: já guardei o dinheiro (cria a transferência se o cartão estiver configurado) */
   reserved: z.boolean().optional(),
+  /** compra parcelada: nº de parcelas (o valor informado é o TOTAL); lança a 1ª e cria conta parcelada com as demais */
+  installments: z.coerce.number().int().min(2).max(72).optional(),
 });
 export type TxBody = z.infer<typeof txBody>;
 
@@ -39,6 +41,8 @@ export async function validateTx(userId: string, entityId: string, b: Partial<Tx
 
 export async function insertTx(userId: string, entityId: string, b: TxBody, source: 'manual' | 'notificacao' = 'manual') {
   await validateTx(userId, entityId, b);
+  const n = b.installments && b.kind === 'despesa' ? b.installments : null;
+  if (n) return insertInstallments(userId, entityId, b, n, source);
   const [t] = await sql`
     insert into transactions (user_id, entity_id, account_id, category_id, kind, amount_cents, description, occurred_at, transfer_account_id, notes, source)
     values (${userId}, ${entityId}, ${b.accountId}, ${b.kind === 'transferencia' ? null : b.categoryId ?? null}, ${b.kind}, ${b.amountCents},
@@ -46,6 +50,33 @@ export async function insertTx(userId: string, entityId: string, b: TxBody, sour
             ${b.notes ?? null}, ${source})
     returning *`;
   return t;
+}
+
+/** Compra parcelada: 1ª parcela como lançamento agora; parcelas 2..N como conta parcelada em bills (com a 1ª já marcada paga). */
+async function insertInstallments(userId: string, entityId: string, b: TxBody, n: number, source: 'manual' | 'notificacao') {
+  const total = b.amountCents;
+  const each = Math.floor(total / n);
+  const first = total - each * (n - 1); // a 1ª absorve os centavos
+  const when = new Date(b.occurredAt ?? new Date().toISOString());
+  const startsOn = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-01`;
+  const period = startsOn.slice(0, 7);
+  const [acc] = await sql`select due_day from accounts where id = ${b.accountId}`;
+  return sql.begin(async (tx) => {
+    const [bill] = await tx`
+      insert into bills (user_id, entity_id, name, category_id, account_id, amount_cents, nature, priority, due_day, starts_on, installments, notes)
+      values (${userId}, ${entityId}, ${b.description || 'Compra parcelada'}, ${b.categoryId ?? null}, ${b.accountId}, ${each}, 'fixa', 'essencial',
+              ${acc?.dueDay ?? when.getDate()}, ${startsOn}, ${n}, ${'Parcelado em ' + n + 'x de ' + (each / 100).toFixed(2) + ' (total ' + (total / 100).toFixed(2) + ')'})
+      returning id`;
+    // ends_on = starts_on + (n-1) meses
+    await tx`update bills set ends_on = (starts_on + make_interval(months => ${n - 1}))::date where id = ${bill.id}`;
+    const [t] = await tx`
+      insert into transactions (user_id, entity_id, account_id, category_id, kind, amount_cents, description, occurred_at, notes, source, installment_bill_id, installment_no, installments)
+      values (${userId}, ${entityId}, ${b.accountId}, ${b.categoryId ?? null}, 'despesa', ${first}, ${(b.description || 'Compra') + ' (1/' + n + ')'},
+              ${when.toISOString()}, ${b.notes ?? null}, ${source}, ${bill.id}, 1, ${n})
+      returning *`;
+    await tx`insert into bill_payments (bill_id, period, amount_cents, transaction_id) values (${bill.id}, ${period}, ${first}, ${t.id})`;
+    return t;
+  });
 }
 
 export default async function transactionRoutes(app: FastifyInstance) {

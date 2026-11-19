@@ -14,6 +14,7 @@ export type TxValues = {
   occurredAt: string
   notes?: string | null
   reserved?: boolean
+  installments?: number | null
 }
 
 export function TransactionSheet({
@@ -39,7 +40,10 @@ export function TransactionSheet({
     occurredAt: toLocalInput(initial?.occurredAt),
     notes: initial?.notes ?? '',
     reserved: initial?.reserved ?? false,
+    installments: initial?.installments ?? null,
   })
+  const [parcelado, setParcelado] = useState(!!initial?.installments)
+  const isEdit = !!initial?.amountCents && initial?.description !== undefined && (initial as any).id
   const set = (p: Partial<TxValues>) => setV((s) => ({ ...s, ...p }))
   const cats = useMemo(() => categories.filter((c) => c.kind === v.kind), [categories, v.kind])
   const { busy, error, run, setError } = useSubmit()
@@ -49,7 +53,7 @@ export function TransactionSheet({
       if (!v.amountCents || v.amountCents <= 0) throw new Error('Informe o valor.')
       if (!v.accountId) throw new Error('Escolha a conta.')
       if (v.kind === 'transferencia' && !v.transferAccountId) throw new Error('Escolha a conta de destino.')
-      await onSubmit({ ...v, amountCents: v.amountCents, occurredAt: fromLocalInput(v.occurredAt) })
+      await onSubmit({ ...v, installments: parcelado && acc?.type === 'cartao' && v.kind === 'despesa' ? v.installments : null, amountCents: v.amountCents, occurredAt: fromLocalInput(v.occurredAt) })
       onClose()
     })
 
@@ -114,6 +118,22 @@ export function TransactionSheet({
         )}
       </div>
       {cardHint && <div className="info-box small">💳 {cardHint}</div>}
+      {acc?.type === 'cartao' && v.kind === 'despesa' && !isEdit && (
+        <div className="info-box" style={{ padding: '10px 14px' }}>
+          <div className="check" style={{ padding: 0 }}>
+            <span><b>Compra parcelada?</b><br /><span className="small muted">Informe o valor <u>total</u> acima. A 1ª parcela entra nesta fatura e as demais viram uma conta parcelada em Contas.</span></span>
+            <Switch checked={parcelado} onChange={(p) => { setParcelado(p); set({ installments: p ? (v.installments ?? 2) : null }) }} />
+          </div>
+          {parcelado && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
+              <select className="input" style={{ width: 'auto' }} value={v.installments ?? 2} onChange={(e) => set({ installments: Number(e.target.value) })}>
+                {Array.from({ length: 23 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n}x</option>)}
+              </select>
+              {v.amountCents ? <span className="small muted">≈ {(v.amountCents / 100 / (v.installments ?? 2)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} por mês</span> : null}
+            </div>
+          )}
+        </div>
+      )}
       {acc?.type === 'cartao' && v.kind === 'despesa' && acc.reserveRequired && (
         <div className={v.reserved ? 'info-box' : 'warn-box'} style={{ padding: '10px 14px' }}>
           <div className="check" style={{ padding: 0 }}>

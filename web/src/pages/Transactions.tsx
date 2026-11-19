@@ -96,7 +96,7 @@ export default function Transactions() {
           initial={{ ...edit, kind: edit.kind as any, reserved: !!edit.reservedAt }}
           onClose={() => setEdit(null)}
           onSubmit={async (v) => {
-            const { reserved, ...body } = v
+            const { reserved, installments, ...body } = v
             await api(`/transactions/${edit.id}`, { method: 'PATCH', body })
             if (!!reserved !== !!edit.reservedAt) await api(`/transactions/${edit.id}/reserve`, reserved ? { body: {} } : { method: 'DELETE' })
             notifyChanged()

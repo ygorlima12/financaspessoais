@@ -227,7 +227,10 @@ export default async function captureRoutes(app: FastifyInstance) {
       return Promise.all(
         rows.map(async (c: any) => {
           const m = c.merchant ? norm(c.merchant) : '';
-          const byName = m ? openBills.find((b) => norm(b.name).includes(m) || m.includes(norm(b.name))) : undefined;
+          // nome só bate se for palavra inteira em ambos os sentidos (evita 'Mercado' casar com 'MERCADOLIVRE')
+          const words = (x: string) => new Set(norm(x).split(/[^a-z0-9]+/).filter((w) => w.length >= 4));
+          const mw = words(m);
+          const byName = m ? openBills.find((b) => { const bw = words(b.name); return [...bw].some((w) => mw.has(w)); }) : undefined;
           const byAmount = c.amountCents ? openBills.find((b) => Math.abs(b.amountCents - c.amountCents) <= Math.max(200, b.amountCents * 0.03)) : undefined;
           const suggested = byName ?? byAmount ?? null;
           return {
@@ -272,6 +275,7 @@ export default async function captureRoutes(app: FastifyInstance) {
           transferAccountId: z.string().uuid().nullish(),
           rememberAccount: z.boolean().default(true),
           reserved: z.boolean().optional(),
+          installments: z.coerce.number().int().min(2).max(72).optional(),
           /** conta cadastrada que esta notificação paga (marca como paga no mês de competência) */
           billId: z.string().uuid().nullish(),
           billMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),

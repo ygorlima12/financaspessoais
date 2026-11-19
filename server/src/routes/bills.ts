@@ -41,6 +41,12 @@ function endsFromInstallments(startsOn: string, installments: number | null | un
   return endsOn ?? null;
 }
 
+function monthsDiff(fromYm: string, toYm: string) {
+  const [fy, fm] = fromYm.split('-').map(Number);
+  const [ty, tm] = toYm.split('-').map(Number);
+  return (ty - fy) * 12 + (tm - fm);
+}
+
 export default async function billRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireAuth);
 
@@ -127,13 +133,15 @@ export default async function billRoutes(app: FastifyInstance) {
     } else {
       const accountId = b.accountId ?? bill.accountId;
       if (!accountId) throw new HttpError(400, 'Escolha de qual conta o pagamento saiu.');
+      const instNo = bill.installments ? monthsDiff(String(bill.startsOn).slice(0, 7), b.month) + 1 : null;
       const t = await insertTx(req.userId, req.entityId, {
         accountId,
         categoryId: bill.categoryId,
         kind: 'despesa',
         amountCents: amount,
-        description: bill.name,
-        occurredAt: b.occurredAt ?? new Date().toISOString(),
+        description: bill.name + (instNo ? ` (${instNo}/${bill.installments})` : ''),
+        // sem data informada: hoje se for o mês atual, senão o vencimento daquele mês
+        occurredAt: b.occurredAt ?? (b.month === monthRange().month ? new Date().toISOString() : `${b.month}-${String(Math.min(bill.dueDay, 28)).padStart(2, '0')}T12:00:00.000Z`),
         notes: null,
       });
       transactionId = t.id;

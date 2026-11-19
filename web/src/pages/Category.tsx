@@ -138,7 +138,7 @@ export default function Category() {
           title="Editar lançamento"
           initial={{ ...edit, kind: edit.kind, categoryId: c.id, reserved: !!edit.reservedAt }}
           onClose={() => { setEdit(null); reload() }}
-          onSubmit={async (v) => { const { reserved, ...body } = v; await api(`/transactions/${edit.id}`, { method: 'PATCH', body }); notifyChanged() }}
+          onSubmit={async (v) => { const { reserved, installments, ...body } = v; await api(`/transactions/${edit.id}`, { method: 'PATCH', body }); notifyChanged() }}
           onDelete={async () => { await api(`/transactions/${edit.id}`, { method: 'DELETE' }); notifyChanged() }}
         />
       )}
