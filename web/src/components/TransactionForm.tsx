@@ -15,6 +15,7 @@ export type TxValues = {
   notes?: string | null
   reserved?: boolean
   installments?: number | null
+  countedInOpening?: boolean
 }
 
 export function TransactionSheet({
@@ -41,6 +42,7 @@ export function TransactionSheet({
     notes: initial?.notes ?? '',
     reserved: initial?.reserved ?? false,
     installments: initial?.installments ?? null,
+    countedInOpening: initial?.countedInOpening ?? false,
   })
   const [parcelado, setParcelado] = useState(!!initial?.installments)
   const isEdit = !!initial?.amountCents && initial?.description !== undefined && (initial as any).id
@@ -148,6 +150,15 @@ export function TransactionSheet({
       <Field label="Data e hora">
         <input className="input" type="datetime-local" value={v.occurredAt} onChange={(e) => set({ occurredAt: e.target.value })} />
       </Field>
+      <div className={v.countedInOpening ? 'info-box' : ''} style={{ padding: v.countedInOpening ? '10px 14px' : 0, marginBottom: 12 }}>
+        <div className="check" style={{ padding: v.countedInOpening ? 0 : '4px 4px 0' }}>
+          <span>
+            <b>Já estava no saldo da conta</b><br />
+            <span className="small muted">Use para {v.kind === 'receita' ? 'entradas' : v.kind === 'despesa' ? 'saídas' : 'transferências'} que aconteceram antes de você cadastrar o saldo inicial. Entra no extrato e nas estatísticas do mês, mas não mexe no saldo.</span>
+          </span>
+          <Switch checked={!!v.countedInOpening} onChange={(countedInOpening) => set({ countedInOpening })} />
+        </div>
+      </div>
       {extra}
       <ErrorBox error={error} />
       <button className="btn block" disabled={busy} onClick={submit}>{busy ? 'Salvando…' : submitLabel}</button>

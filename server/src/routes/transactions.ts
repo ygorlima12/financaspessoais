@@ -18,6 +18,8 @@ export const txBody = z.object({
   reserved: z.boolean().optional(),
   /** compra parcelada: nº de parcelas (o valor informado é o TOTAL); lança a 1ª e cria conta parcelada com as demais */
   installments: z.coerce.number().int().min(2).max(72).optional(),
+  /** já estava refletido no saldo inicial da conta: entra no extrato e nas estatísticas, mas não altera o saldo */
+  countedInOpening: z.boolean().optional(),
 });
 export type TxBody = z.infer<typeof txBody>;
 
@@ -44,10 +46,10 @@ export async function insertTx(userId: string, entityId: string, b: TxBody, sour
   const n = b.installments && b.kind === 'despesa' ? b.installments : null;
   if (n) return insertInstallments(userId, entityId, b, n, source);
   const [t] = await sql`
-    insert into transactions (user_id, entity_id, account_id, category_id, kind, amount_cents, description, occurred_at, transfer_account_id, notes, source)
+    insert into transactions (user_id, entity_id, account_id, category_id, kind, amount_cents, description, occurred_at, transfer_account_id, notes, source, counted_in_opening)
     values (${userId}, ${entityId}, ${b.accountId}, ${b.kind === 'transferencia' ? null : b.categoryId ?? null}, ${b.kind}, ${b.amountCents},
             ${b.description}, ${b.occurredAt ?? new Date().toISOString()}, ${b.kind === 'transferencia' ? b.transferAccountId! : null},
-            ${b.notes ?? null}, ${source})
+            ${b.notes ?? null}, ${source}, ${b.countedInOpening ?? false})
     returning *`;
   return t;
 }
@@ -70,9 +72,9 @@ async function insertInstallments(userId: string, entityId: string, b: TxBody, n
     // ends_on = starts_on + (n-1) meses
     await tx`update bills set ends_on = (starts_on + make_interval(months => ${n - 1}))::date where id = ${bill.id}`;
     const [t] = await tx`
-      insert into transactions (user_id, entity_id, account_id, category_id, kind, amount_cents, description, occurred_at, notes, source, installment_bill_id, installment_no, installments)
+      insert into transactions (user_id, entity_id, account_id, category_id, kind, amount_cents, description, occurred_at, notes, source, installment_bill_id, installment_no, installments, counted_in_opening)
       values (${userId}, ${entityId}, ${b.accountId}, ${b.categoryId ?? null}, 'despesa', ${first}, ${(b.description || 'Compra') + ' (1/' + n + ')'},
-              ${when.toISOString()}, ${b.notes ?? null}, ${source}, ${bill.id}, 1, ${n})
+              ${when.toISOString()}, ${b.notes ?? null}, ${source}, ${bill.id}, 1, ${n}, ${b.countedInOpening ?? false})
       returning *`;
     await tx`insert into bill_payments (bill_id, period, amount_cents, transaction_id) values (${bill.id}, ${period}, ${first}, ${t.id})`;
     return t;
@@ -146,7 +148,8 @@ export default async function transactionRoutes(app: FastifyInstance) {
         description = ${merged.description},
         occurred_at = ${merged.occurredAt instanceof Date ? merged.occurredAt.toISOString() : merged.occurredAt},
         transfer_account_id = ${merged.kind === 'transferencia' ? merged.transferAccountId : null},
-        notes = ${merged.notes ?? null}
+        notes = ${merged.notes ?? null},
+        counted_in_opening = ${merged.countedInOpening ?? false}
       where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}
       returning *`;
     if (b.categoryId && merged.kind !== 'transferencia') await learnMerchant(req.userId, req.entityId, merged.description, b.categoryId);

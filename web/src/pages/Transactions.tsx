@@ -12,7 +12,7 @@ type Tx = {
   id: string; kind: string; amountCents: number; description: string; occurredAt: string; accountId: string; accountName: string
   categoryId: string | null; categoryName: string | null; categoryIcon: string | null; categoryColor: string | null
   transferAccountId: string | null; transferAccountName: string | null; investmentName: string | null; source: string; notes: string | null
-  accountType?: string; reservedAt?: string | null
+  accountType?: string; reservedAt?: string | null; countedInOpening?: boolean
 }
 
 const FILTERS: Array<[string, string]> = [['', 'Todos'], ['despesa', 'Saídas'], ['receita', 'Entradas'], ['transferencia', 'Transferências'], ['aporte', 'Aportes'], ['resgate', 'Resgates']]
@@ -122,7 +122,7 @@ export function TxRow({ t, onClick }: { t: Tx; onClick?: () => void }) {
       <div className="icon-dot" style={t.categoryColor ? { background: `color-mix(in srgb, ${t.categoryColor} 22%, transparent)` } : undefined}>{icon}</div>
       <div className="grow">
         <div className="title">{t.description || t.categoryName || 'Sem descrição'}</div>
-        <div className="meta">{meta}{t.source === 'notificacao' ? ' · 🔔' : ''}{t.accountType === 'cartao' && t.kind === 'despesa' ? (t.reservedAt ? ' · ✓ guardado' : <span style={{ color: 'var(--orange)' }}> · não guardado</span>) : ''}</div>
+        <div className="meta">{meta}{t.source === 'notificacao' ? ' · 🔔' : ''}{t.accountType === 'cartao' && t.kind === 'despesa' ? (t.reservedAt ? ' · ✓ guardado' : <span style={{ color: 'var(--orange)' }}> · não guardado</span>) : ''}{t.countedInOpening ? ' · já no saldo' : ''}</div>
       </div>
       <div className="end">
         <div className={`num ${cls}`} style={{ fontWeight: 500 }}>{sign}{money(t.amountCents)}</div>

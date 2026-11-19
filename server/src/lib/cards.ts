@@ -111,7 +111,7 @@ export async function cardsSummary(userId: string, entityId: string) {
       invoiceFor(userId, entityId, c, openMonth),
       invoiceFor(userId, entityId, c, prevMonth),
       sql`select coalesce(sum(case when kind in ('receita') or (kind = 'transferencia' and transfer_account_id = ${c.id}) then amount_cents else -amount_cents end), 0) as v
-          from transactions where user_id = ${userId} and entity_id = ${entityId} and (account_id = ${c.id} or transfer_account_id = ${c.id})`,
+          from transactions where user_id = ${userId} and entity_id = ${entityId} and not counted_in_opening and (account_id = ${c.id} or transfer_account_id = ${c.id})`,
     ]);
     const owedCents = -(c.initialBalanceCents + Number(bal[0].v)); // positivo = deve
     out.push({

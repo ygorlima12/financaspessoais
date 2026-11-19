@@ -305,6 +305,7 @@ function BillForm({ bill, onClose }: { bill: Bill | null; onClose: () => void })
     installments: String(bill?.installments ?? ''),
     notes: bill?.notes ?? '',
   })
+  const [paidNow, setPaidNow] = useState(false)
   const set = (p: Partial<typeof v>) => setV((s) => ({ ...s, ...p }))
   const { busy, error, run } = useSubmit()
   const save = () => run(async () => {
@@ -321,7 +322,10 @@ function BillForm({ bill, onClose }: { bill: Bill | null; onClose: () => void })
       notes: v.notes || null,
     }
     if (bill) await api(`/bills/${bill.id}`, { method: 'PATCH', body })
-    else await api('/bills', { body })
+    else {
+      const created = await api('/bills', { body })
+      if (paidNow) await api(`/bills/${created.id}/pay`, { body: { month: monthKey(), accountId: v.accountId || null, alreadyInBalance: true } })
+    }
     notifyChanged(); onClose()
   })
   const lastMonth = v.mode === 'parcelas' && Number(v.installments) > 0 ? shiftMonth(v.startsOn, Number(v.installments) - 1) : null
@@ -371,8 +375,14 @@ function BillForm({ bill, onClose }: { bill: Bill | null; onClose: () => void })
       {lastMonth && <div className="small muted" style={{ marginTop: -8, marginBottom: 14, padding: '0 4px' }}>Última parcela em {monthLabel(lastMonth)}.</div>}
 
       <Field label="Observações"><input className="input" value={v.notes} placeholder="Opcional" onChange={(e) => set({ notes: e.target.value })} /></Field>
+      {!bill && (
+        <div className="check">
+          <span><b>Já paguei este mês</b><br /><span className="small muted">O dinheiro já saiu antes do saldo inicial: marca este mês como pago sem descontar da conta.{!v.accountId ? ' Escolha "Sai de" acima.' : ''}</span></span>
+          <Switch checked={paidNow} onChange={setPaidNow} />
+        </div>
+      )}
       <ErrorBox error={error} />
-      <button className="btn block" disabled={busy} onClick={save}>Salvar</button>
+      <button className="btn block" disabled={busy || (paidNow && !v.accountId)} onClick={save}>Salvar</button>
       {bill && (
         <>
           <button className="btn secondary block" style={{ marginTop: 8 }} disabled={busy}
@@ -397,6 +407,7 @@ function PaySheet({ bill, month, onClose }: { bill: Bill; month: string; onClose
   const [accountId, setAccountId] = useState(bill.accountId ?? '')
   const [when, setWhen] = useState(toLocalInput())
   const [link, setLink] = useState(!!bill.suggestedTransaction)
+  const [already, setAlready] = useState(false)
   const { busy, error, run } = useSubmit()
   const save = () => run(async () => {
     if (link && bill.suggestedTransaction) {
@@ -404,7 +415,7 @@ function PaySheet({ bill, month, onClose }: { bill: Bill; month: string; onClose
     } else {
       if (!amount) throw new Error('Informe o valor pago.')
       if (!accountId) throw new Error('Escolha de onde saiu o pagamento.')
-      await api(`/bills/${bill.id}/pay`, { body: { month, amountCents: amount, accountId, occurredAt: fromLocalInput(when) } })
+      await api(`/bills/${bill.id}/pay`, { body: { month, amountCents: amount, accountId, occurredAt: fromLocalInput(when), alreadyInBalance: already } })
     }
     notifyChanged(); onClose()
   })
@@ -426,7 +437,11 @@ function PaySheet({ bill, month, onClose }: { bill: Bill; month: string; onClose
             </select>
           </Field>
           <Field label="Quando"><input className="input" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></Field>
-          <div className="small muted" style={{ marginBottom: 12 }}>Isso cria um lançamento de saída em {monthLabel(month)}{bill.categoryName ? ` na categoria ${bill.categoryName}` : ''}.</div>
+          <div className="check">
+            <span><b>Já saiu do saldo</b><br /><span className="small muted">Paguei antes de cadastrar o saldo inicial: só marcar como paga, sem descontar da conta.</span></span>
+            <Switch checked={already} onChange={setAlready} />
+          </div>
+          <div className="small muted" style={{ marginBottom: 12 }}>{already ? 'Vai aparecer no extrato e nas estatísticas, sem alterar o saldo.' : `Isso cria um lançamento de saída em ${monthLabel(month)}${bill.categoryName ? ` na categoria ${bill.categoryName}` : ''}.`}</div>
         </>
       )}
       <ErrorBox error={error} />

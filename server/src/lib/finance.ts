@@ -15,7 +15,7 @@ export async function accountsWithBalance(userId: string, entityId: string, incl
        a.initial_balance_cents + coalesce((
          select sum(${ACCOUNT_EFFECT('a.id')})
          from transactions t
-         where t.user_id = a.user_id and (t.account_id = a.id or t.transfer_account_id = a.id)
+         where t.user_id = a.user_id and not t.counted_in_opening and (t.account_id = a.id or t.transfer_account_id = a.id)
        ), 0) as balance_cents
      from accounts a
      where a.user_id = $1 and a.entity_id = $2 ${includeArchived ? '' : 'and not a.archived'}
@@ -54,7 +54,7 @@ export async function netWorthHistory(userId: string, entityId: string, months =
             when kind in ('receita','resgate') then amount_cents
             when kind in ('despesa','aporte') then -amount_cents
             else 0 end), 0)
-          from transactions where user_id = $1 and entity_id = $3 and occurred_at < m.end_at)
+          from transactions where user_id = $1 and entity_id = $3 and not counted_in_opening and occurred_at < m.end_at)
        as accounts_cents,
        (select coalesce(sum(case mv.kind when 'resgate' then -mv.amount_cents else mv.amount_cents end), 0)
           from investment_movements mv join investments i on i.id = mv.investment_id

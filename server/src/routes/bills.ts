@@ -115,6 +115,8 @@ export default async function billRoutes(app: FastifyInstance) {
         accountId: z.string().uuid().nullish(),
         occurredAt: zDateTime.optional(),
         transactionId: z.string().uuid().nullish(),
+        /** já saiu do saldo antes do saldo inicial: só marca como paga, sem alterar o saldo */
+        alreadyInBalance: z.boolean().optional(),
       }),
       req.body,
     );
@@ -140,6 +142,7 @@ export default async function billRoutes(app: FastifyInstance) {
         kind: 'despesa',
         amountCents: amount,
         description: bill.name + (instNo ? ` (${instNo}/${bill.installments})` : ''),
+        countedInOpening: b.alreadyInBalance ?? false,
         // sem data informada: hoje se for o mês atual, senão o vencimento daquele mês
         occurredAt: b.occurredAt ?? (b.month === monthRange().month ? new Date().toISOString() : `${b.month}-${String(Math.min(bill.dueDay, 28)).padStart(2, '0')}T12:00:00.000Z`),
         notes: null,

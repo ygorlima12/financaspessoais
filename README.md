@@ -128,6 +128,9 @@ Passo a passo em **[docs/android-macrodroid.md](docs/android-macrodroid.md)**. R
 
 ## Como os números são calculados
 
+- **"Já estava no saldo":** ao cadastrar o saldo inicial de uma conta pelo saldo atual do banco, tudo que já foi pago ou recebido
+  antes está embutido nele. Lançamentos marcados com essa opção (no formulário, no "Pagar" de uma conta ou em "Já paguei este mês"
+  ao criar a conta) entram no extrato e nas estatísticas do mês, mas não alteram o saldo.
 - **Saldo da conta** = saldo inicial + entradas + resgates − saídas − aportes ± transferências.
 - **Cartão de crédito** é uma conta que fica negativa conforme você gasta. Compra = saída com "sai de: Cartão";
   pagar a fatura = **transferência** da conta corrente para o cartão (assim a compra não conta duas vezes);
