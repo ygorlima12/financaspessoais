@@ -275,7 +275,7 @@ export default async function captureRoutes(app: FastifyInstance) {
           transferAccountId: z.string().uuid().nullish(),
           rememberAccount: z.boolean().default(true),
           reserved: z.boolean().optional(),
-          installments: z.coerce.number().int().min(2).max(72).optional(),
+          installments: z.preprocess((x) => (x === null || x === '' || x === undefined ? undefined : x), z.coerce.number().int().min(2).max(72).optional()),
           /** conta cadastrada que esta notificação paga (marca como paga no mês de competência) */
           billId: z.string().uuid().nullish(),
           billMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),

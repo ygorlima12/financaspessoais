@@ -17,7 +17,7 @@ export const txBody = z.object({
   /** compra no cartão: já guardei o dinheiro (cria a transferência se o cartão estiver configurado) */
   reserved: z.boolean().optional(),
   /** compra parcelada: nº de parcelas (o valor informado é o TOTAL); lança a 1ª e cria conta parcelada com as demais */
-  installments: z.coerce.number().int().min(2).max(72).optional(),
+  installments: z.preprocess((x) => (x === null || x === '' || x === undefined ? undefined : x), z.coerce.number().int().min(2).max(72).optional()),
   /** já estava refletido no saldo inicial da conta: entra no extrato e nas estatísticas, mas não altera o saldo */
   countedInOpening: z.boolean().optional(),
 });

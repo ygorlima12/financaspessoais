@@ -55,7 +55,7 @@ export function TransactionSheet({
       if (!v.amountCents || v.amountCents <= 0) throw new Error('Informe o valor.')
       if (!v.accountId) throw new Error('Escolha a conta.')
       if (v.kind === 'transferencia' && !v.transferAccountId) throw new Error('Escolha a conta de destino.')
-      await onSubmit({ ...v, installments: parcelado && acc?.type === 'cartao' && v.kind === 'despesa' ? v.installments : null, amountCents: v.amountCents, occurredAt: fromLocalInput(v.occurredAt) })
+      await onSubmit({ ...v, installments: parcelado && acc?.type === 'cartao' && v.kind === 'despesa' && v.installments ? v.installments : undefined, amountCents: v.amountCents, occurredAt: fromLocalInput(v.occurredAt) })
       onClose()
     })
 
