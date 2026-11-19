@@ -137,7 +137,7 @@ export default function Bills() {
         </>
       )}
 
-      {edit && <BillForm bill={edit === 'new' ? null : edit} onClose={() => { setEdit(null); reload() }} />}
+      {edit && <BillForm bill={edit === 'new' ? null : edit} month={month} onClose={() => { setEdit(null); reload() }} />}
       {pay && <PaySheet bill={pay} month={month} onClose={() => { setPay(null); reload() }} />}
       {showAnalysis && a && <AnalysisSheet a={a} onClose={() => { setShowAnalysis(false); reload() }} />}
       <button className="fab" aria-label="Nova conta" onClick={() => setEdit('new')}>+</button>
@@ -290,7 +290,7 @@ function AnalysisSheet({ a, onClose }: { a: any; onClose: () => void }) {
 
 // ---------------- Formulário ----------------
 
-function BillForm({ bill, onClose }: { bill: Bill | null; onClose: () => void }) {
+function BillForm({ bill, month, onClose }: { bill: Bill | null; month: string; onClose: () => void }) {
   const { accounts, categories } = useData()
   const cats = categories.filter((c) => c.kind === 'despesa')
   const today = new Date()
@@ -321,13 +321,15 @@ function BillForm({ bill, onClose }: { bill: Bill | null; onClose: () => void })
       installments: v.mode === 'parcelas' ? Number(v.installments) : null,
       notes: v.notes || null,
     }
+    let id = bill?.id
     if (bill) await api(`/bills/${bill.id}`, { method: 'PATCH', body })
-    else {
-      const created = await api('/bills', { body })
-      if (paidNow) await api(`/bills/${created.id}/pay`, { body: { month: monthKey(), accountId: v.accountId || null, alreadyInBalance: true } })
-    }
+    else id = (await api('/bills', { body })).id
+    if (paidNow && id) await api(`/bills/${id}/pay`, { body: { month: payMonth, accountId: v.accountId || null, alreadyInBalance: true } })
     notifyChanged(); onClose()
   })
+  // Mês que a chave "Já paguei" marca: o mês visto na lista (nova conta: o mês atual).
+  const payMonth = bill ? month : monthKey()
+  const canMarkPaid = !bill || !bill.paymentId
   const lastMonth = v.mode === 'parcelas' && Number(v.installments) > 0 ? shiftMonth(v.startsOn, Number(v.installments) - 1) : null
 
   return (
@@ -375,9 +377,9 @@ function BillForm({ bill, onClose }: { bill: Bill | null; onClose: () => void })
       {lastMonth && <div className="small muted" style={{ marginTop: -8, marginBottom: 14, padding: '0 4px' }}>Última parcela em {monthLabel(lastMonth)}.</div>}
 
       <Field label="Observações"><input className="input" value={v.notes} placeholder="Opcional" onChange={(e) => set({ notes: e.target.value })} /></Field>
-      {!bill && (
+      {canMarkPaid && (
         <div className="check">
-          <span><b>Já paguei este mês</b><br /><span className="small muted">O dinheiro já saiu antes do saldo inicial: marca este mês como pago sem descontar da conta.{!v.accountId ? ' Escolha "Sai de" acima.' : ''}</span></span>
+          <span><b>{payMonth === monthKey() ? 'Já paguei este mês' : `Já paguei em ${monthLabel(payMonth)}`}</b><br /><span className="small muted">O dinheiro já saiu antes do saldo inicial: marca este mês como pago sem descontar da conta.{!v.accountId ? ' Escolha "Sai de" acima.' : ''}</span></span>
           <Switch checked={paidNow} onChange={setPaidNow} />
         </div>
       )}
