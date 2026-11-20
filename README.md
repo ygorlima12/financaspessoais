@@ -140,7 +140,8 @@ Passo a passo em **[docs/android-macrodroid.md](docs/android-macrodroid.md)**. R
 - **Investimento:** valor = aportes − resgates + rendimentos. "Atualizar valor" grava a diferença como rendimento.
   Aporte com conta de origem tira o dinheiro da conta (não conta como gasto).
 - **Reserva de emergência:** soma das contas/investimentos marcados como reserva ÷ (custo mensal × meses).
-  O custo mensal é o que você informar ou a média das despesas dos últimos 3 meses.
+  O custo mensal vem, por padrão, da soma das contas cadastradas vigentes no mês (fixas + estimativa das variáveis);
+  em Investir › Reserva › Configurar dá para trocar pela média das despesas dos últimos 3 meses ou por um valor manual.
 - **Metas:** valor guardado + saldo dos investimentos vinculados; com prazo, mostra quanto guardar por mês.
 - **Taxa de poupança** = (entradas − saídas) ÷ entradas do mês.
 - **Contas fixas x renda:** soma das contas fixas vigentes no mês ÷ renda de referência (informada em Contas › Análise,

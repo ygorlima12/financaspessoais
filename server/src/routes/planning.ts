@@ -60,6 +60,7 @@ export default async function planningRoutes(app: FastifyInstance) {
       z.object({
         reserveMonths: z.coerce.number().int().min(1).max(36).optional(),
         reserveMonthlyCostCents: z.coerce.number().int().positive().nullish(),
+        reserveCostSource: z.enum(['contas', 'media', 'manual']).optional(),
         autoConfirmCaptures: z.boolean().optional(),
       }),
       req.body,
@@ -68,6 +69,7 @@ export default async function planningRoutes(app: FastifyInstance) {
     const fields: Record<string, unknown> = { updatedAt: new Date() };
     if (b.reserveMonths !== undefined) fields.reserveMonths = b.reserveMonths;
     if (b.reserveMonthlyCostCents !== undefined) fields.reserveMonthlyCostCents = b.reserveMonthlyCostCents ?? null;
+    if (b.reserveCostSource !== undefined) fields.reserveCostSource = b.reserveCostSource;
     if (b.autoConfirmCaptures !== undefined) fields.autoConfirmCaptures = b.autoConfirmCaptures;
     const [s] = await sql`update entity_settings set ${sql(fields)} where entity_id = ${req.entityId} returning *`;
     return s;

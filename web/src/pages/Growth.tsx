@@ -243,11 +243,11 @@ function Reserve() {
 
       <div className="grid grid-2" style={{ marginTop: 12 }}>
         <div className="card stat"><div className="label">Custo mensal</div><div className="value num">{money(r.monthlyCostCents)}</div>
-          <div className="small muted">{r.monthlyCostSource === 'manual' ? 'definido por você' : 'média dos últimos 3 meses'}</div></div>
+          <div className="small muted">{r.monthlyCostSource === 'manual' ? 'definido por você' : r.monthlyCostSource === 'contas' ? `soma das ${r.billsCount} contas cadastradas` : 'média dos últimos 3 meses'}</div></div>
         <div className="card stat"><div className="label">Falta</div><div className="value num">{money(r.missingCents)}</div>
           {monthlySuggestion > 0 && <div className="small muted">≈ {money(monthlySuggestion)}/mês em 12 meses</div>}</div>
       </div>
-      {r.monthlyCostCents === 0 && <div className="warn-box" style={{ marginTop: 12 }}>Defina seu custo mensal (ou registre suas despesas por alguns meses) para calcular a meta da reserva.</div>}
+      {r.monthlyCostCents === 0 && <div className="warn-box" style={{ marginTop: 12 }}>Cadastre suas contas na aba Contas (ou defina o custo mensal em Configurar) para calcular a meta da reserva.</div>}
 
       <div className="section-title">Onde está a reserva <button className="link-btn" onClick={() => setEdit(true)}>Configurar</button></div>
       {r.items.length === 0 ? (
@@ -273,12 +273,12 @@ function Reserve() {
 
 function ReserveSettings({ r, onClose }: { r: any; onClose: () => void }) {
   const [months, setMonths] = useState(String(r.months))
-  const [auto, setAuto] = useState(r.monthlyCostSource !== 'manual')
+  const [source, setSource] = useState<'contas' | 'media' | 'manual'>(r.monthlyCostSource)
   const [cost, setCost] = useState<number | null>(r.monthlyCostSource === 'manual' ? r.monthlyCostCents : null)
   const { busy, error, run } = useSubmit()
   const save = () => run(async () => {
-    if (!auto && !cost) throw new Error('Informe o custo mensal.')
-    await api('/settings', { method: 'PUT', body: { reserveMonths: Number(months), reserveMonthlyCostCents: auto ? null : cost } })
+    if (source === 'manual' && !cost) throw new Error('Informe o custo mensal.')
+    await api('/settings', { method: 'PUT', body: { reserveMonths: Number(months), reserveCostSource: source, reserveMonthlyCostCents: source === 'manual' ? cost : null } })
     notifyChanged(); onClose()
   })
   return (
@@ -288,8 +288,14 @@ function ReserveSettings({ r, onClose }: { r: any; onClose: () => void }) {
           {[3, 4, 6, 9, 12, 18, 24].map((m) => <option key={m} value={m}>{m} meses</option>)}
         </select>
       </Field>
-      <div className="check"><span>Calcular custo mensal pela média das minhas despesas<br /><span className="small muted">Média atual: {money(r.avgMonthlyExpenseCents)}</span></span><Switch checked={auto} onChange={setAuto} /></div>
-      {!auto && <Field label="Custo de vida mensal"><MoneyField cents={cost} onChange={setCost} /></Field>}
+      <div className="field"><span>Custo mensal usado na meta</span></div>
+      <Segmented value={source} onChange={setSource} options={[['contas', 'Contas'], ['media', 'Média'], ['manual', 'Manual']]} />
+      <div className="small muted" style={{ marginTop: -8, marginBottom: 14, padding: '0 4px' }}>
+        {source === 'contas' && <>Soma das contas fixas e variáveis cadastradas e vigentes neste mês: <b>{money(r.billsMonthlyCostCents)}</b> ({r.billsCount} contas). Atualiza sozinho quando você cadastra ou encerra uma conta.</>}
+        {source === 'media' && <>Média das despesas lançadas nos últimos 3 meses: <b>{money(r.avgMonthlyExpenseCents)}</b>. Precisa de alguns meses de uso para ficar fiel.</>}
+        {source === 'manual' && <>Você informa o custo de vida mensal.</>}
+      </div>
+      {source === 'manual' && <Field label="Custo de vida mensal"><MoneyField cents={cost} onChange={setCost} /></Field>}
       <ErrorBox error={error} />
       <button className="btn block" disabled={busy} onClick={save}>Salvar</button>
     </Sheet>

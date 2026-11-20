@@ -106,14 +106,33 @@ export async function avgMonthlyExpense(userId: string, entityId: string) {
   return Math.round(Number(r.avg));
 }
 
+/** Soma das contas (fixas + estimativa das variáveis) vigentes no mês atual. */
+export async function billsMonthlyCost(userId: string, entityId: string) {
+  const [r] = await sql`
+    select coalesce(sum(amount_cents), 0) as total, count(*)::int as n
+    from bills b
+    where b.user_id = ${userId} and b.entity_id = ${entityId} and not b.archived
+      and date_trunc('month', b.starts_on) <= date_trunc('month', now())
+      and (b.ends_on is null or date_trunc('month', b.ends_on) >= date_trunc('month', now()))`;
+  return { totalCents: Number(r.total), count: r.n as number };
+}
+
+export type ReserveCostSource = 'contas' | 'media' | 'manual';
+
 export async function reserveSummary(userId: string, entityId: string) {
   const settings = await getSettings(userId, entityId);
-  const [accounts, investments, avg] = await Promise.all([
+  const [accounts, investments, avg, bills] = await Promise.all([
     accountsWithBalance(userId, entityId),
     investmentsWithBalance(userId, entityId),
     avgMonthlyExpense(userId, entityId),
+    billsMonthlyCost(userId, entityId),
   ]);
-  const monthlyCost = settings.reserveMonthlyCostCents ?? avg;
+  let source: ReserveCostSource = (settings.reserveCostSource as ReserveCostSource) ?? 'contas';
+  if (source === 'manual' && settings.reserveMonthlyCostCents == null) source = 'contas';
+  // Sem contas cadastradas ainda, cai para a média (e vice-versa) para não ficar zerado.
+  if (source === 'contas' && bills.totalCents === 0 && avg > 0) source = 'media';
+  else if (source === 'media' && avg === 0 && bills.totalCents > 0) source = 'contas';
+  const monthlyCost = source === 'manual' ? settings.reserveMonthlyCostCents : source === 'contas' ? bills.totalCents : avg;
   const items = [
     ...accounts.filter((a) => a.isReserve).map((a) => ({ id: a.id, name: a.name, type: 'conta', balanceCents: a.balanceCents })),
     ...investments.filter((i) => i.isReserve).map((i) => ({ id: i.id, name: i.name, type: 'investimento', balanceCents: i.balanceCents })),
@@ -123,8 +142,10 @@ export async function reserveSummary(userId: string, entityId: string) {
   return {
     months: settings.reserveMonths,
     monthlyCostCents: monthlyCost,
-    monthlyCostSource: settings.reserveMonthlyCostCents != null ? 'manual' : 'media_3_meses',
+    monthlyCostSource: source,
     avgMonthlyExpenseCents: avg,
+    billsMonthlyCostCents: bills.totalCents,
+    billsCount: bills.count,
     targetCents: target,
     currentCents: current,
     progress: target > 0 ? Math.min(1, current / target) : 0,
