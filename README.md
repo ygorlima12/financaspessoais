@@ -147,6 +147,11 @@ Passo a passo em **[docs/android-macrodroid.md](docs/android-macrodroid.md)**. R
   configuráveis por entidade; cada entrada (manual ou por notificação) é repartida ao ser lançada. "Separar" executa o
   destino do pote: transferência para a reserva, aporte no investimento, valor guardado na meta, saída na categoria ou
   transferência para uma conta. Potes podem valer só para quem recebeu (ex.: "Ygor" só nas entradas do Ygor).
+- **Importar extrato CSV (Extrato › ⬆ CSV):** envie o CSV do banco (qualquer um com colunas Data e Valor; Santander,
+  Nubank, Inter…). O app compara com o que já está lançado na conta (mesmo valor, direção e data até 3 dias de distância,
+  o que cobre notificações e lançamentos manuais), mostra o saldo do banco x saldo do app e lista só as linhas novas, com
+  tipo sugerido (saída, entrada, foi para / veio de outra conta, ignorar) e categoria aprendida. Reimportar o mesmo arquivo
+  não duplica nada.
 - **Taxa de poupança** = (entradas − saídas) ÷ entradas do mês.
 - **Contas fixas x renda:** soma das contas fixas vigentes no mês ÷ renda de referência (informada em Contas › Análise,
   ou a média das entradas dos últimos 3 meses). Cartão de crédito não é conta: cadastre as assinaturas e parcelas que vão nele.

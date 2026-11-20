@@ -46,7 +46,7 @@ export async function validateTx(userId: string, entityId: string, b: Partial<Tx
   }
 }
 
-export async function insertTx(userId: string, entityId: string, b: TxBody, source: 'manual' | 'notificacao' = 'manual') {
+export async function insertTx(userId: string, entityId: string, b: TxBody, source: 'manual' | 'notificacao' | 'importacao' = 'manual') {
   await validateTx(userId, entityId, b);
   const n = b.installments && b.kind === 'despesa' ? b.installments : null;
   if (n) return insertInstallments(userId, entityId, b, n, source);
@@ -61,7 +61,7 @@ export async function insertTx(userId: string, entityId: string, b: TxBody, sour
 }
 
 /** Compra parcelada: 1ª parcela como lançamento agora; parcelas 2..N como conta parcelada em bills (com a 1ª já marcada paga). */
-async function insertInstallments(userId: string, entityId: string, b: TxBody, n: number, source: 'manual' | 'notificacao') {
+async function insertInstallments(userId: string, entityId: string, b: TxBody, n: number, source: 'manual' | 'notificacao' | 'importacao') {
   const total = b.amountCents;
   const each = Math.floor(total / n);
   const first = total - each * (n - 1); // a 1ª absorve os centavos

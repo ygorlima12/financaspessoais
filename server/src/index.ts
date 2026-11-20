@@ -21,6 +21,7 @@ import billRoutes from './routes/bills.js';
 import cardRoutes from './routes/cards.js';
 import wishRoutes from './routes/wishes.js';
 import divisionRoutes from './routes/divisions.js';
+import importRoutes from './routes/import.js';
 import spendRoutes from './routes/spend.js';
 import entityRoutes from './routes/entities.js';
 
@@ -28,7 +29,7 @@ export async function buildApp() {
   const app = Fastify({
     logger: { level: config.isProd ? 'info' : 'warn' },
     trustProxy: true,
-    bodyLimit: 256 * 1024,
+    bodyLimit: 4 * 1024 * 1024,
   });
 
   // Aceita texto puro (alguns apps de automação mandam assim)
@@ -75,6 +76,7 @@ export async function buildApp() {
   await app.register(cardRoutes);
   await app.register(wishRoutes);
   await app.register(divisionRoutes);
+  await app.register(importRoutes);
   await app.register(spendRoutes);
   await app.register(entityRoutes);
 

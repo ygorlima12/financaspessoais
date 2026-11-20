@@ -7,6 +7,7 @@ import { notifyChanged, useApi } from '../hooks'
 import { Empty, Spinner } from '../components/ui'
 import { TransactionSheet } from '../components/TransactionForm'
 import { useNewTransaction } from './Home'
+import ImportSheet from '../components/ImportSheet'
 
 type Tx = {
   id: string; kind: string; amountCents: number; description: string; occurredAt: string; accountId: string; accountName: string
@@ -27,6 +28,7 @@ export default function Transactions() {
   const qs = new URLSearchParams({ month, ...(kind && { kind }), ...(accountId && { accountId }), ...(q.trim() && { q: q.trim() }) })
   const { data, loading } = useApi<{ transactions: Tx[]; totals: { incomeCents: number; expenseCents: number } }>(`/transactions?${qs}`)
   const [edit, setEdit] = useState<Tx | null>(null)
+  const [importing, setImporting] = useState(false)
   const nt = useNewTransaction()
   const navigate = useNavigate()
 
@@ -62,7 +64,10 @@ export default function Transactions() {
         </div>
       </div>
 
-      <input className="input" placeholder="Buscar" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 10, background: 'var(--bg-elev)' }} />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        <input className="input" placeholder="Buscar" value={q} onChange={(e) => setQ(e.target.value)} style={{ background: 'var(--bg-elev)', flex: 1 }} />
+        <button className="btn secondary" style={{ whiteSpace: 'nowrap' }} onClick={() => setImporting(true)} title="Importar extrato CSV do banco">⬆ CSV</button>
+      </div>
       <div className="chips">
         {FILTERS.map(([k, l]) => <button key={k} className={`chip ${kind === k ? 'on' : ''}`} onClick={() => setKind(k)}>{l}</button>)}
       </div>
@@ -104,6 +109,7 @@ export default function Transactions() {
           onDelete={async () => { await api(`/transactions/${edit.id}`, { method: 'DELETE' }); notifyChanged() }}
         />
       )}
+      {importing && <ImportSheet initialAccountId={accountId || undefined} onClose={() => setImporting(false)} />}
       <button className="fab" aria-label="Novo lançamento" onClick={nt.open}>+</button>
       {nt.sheet}
     </>
