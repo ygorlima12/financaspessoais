@@ -94,6 +94,19 @@ export default function Home() {
         </Link>
       )}
 
+      {d.divisions?.configured && (d.divisions.pendingCount > 0 || d.divisions.unsplitCount > 0) && (
+        <Link to="/crescer?tab=divisoes" className="card row" style={{ marginBottom: 12, color: 'inherit', background: 'color-mix(in srgb, var(--purple) 12%, var(--bg-elev))' }}>
+          <div className="icon-dot" style={{ background: 'color-mix(in srgb, var(--purple) 25%, transparent)' }}>🧩</div>
+          <div className="grow">
+            <div className="title" style={{ fontWeight: 600 }}>
+              {d.divisions.pendingCount > 0 ? `${money(d.divisions.pendingCents)} das entradas ainda não separados` : `${d.divisions.unsplitCount} ${d.divisions.unsplitCount === 1 ? 'entrada sem divisão' : 'entradas sem divisão'}`}
+            </div>
+            <div className="meta">{d.divisions.pendingCount > 0 ? `${d.divisions.pendingCount} ${d.divisions.pendingCount === 1 ? 'pote pendente' : 'potes pendentes'} · ${money(d.divisions.doneCents)} já separados` : 'Toque para dividir pelos potes'}</div>
+          </div>
+          <span className="chev">›</span>
+        </Link>
+      )}
+
       {d.bills.total > 0 && (
         <Link to="/contas" className="card" style={{ display: 'block', marginBottom: 12, color: 'inherit' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>

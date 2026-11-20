@@ -143,6 +143,10 @@ Passo a passo em **[docs/android-macrodroid.md](docs/android-macrodroid.md)**. R
   O custo mensal vem, por padrão, da soma das contas cadastradas vigentes no mês (fixas + estimativa das variáveis);
   em Investir › Reserva › Configurar dá para trocar pela média das despesas dos últimos 3 meses ou por um valor manual.
 - **Metas:** valor guardado + saldo dos investimentos vinculados; com prazo, mostra quanto guardar por mês.
+- **Divisões da entrada (Crescer › Divisões):** potes com percentual (dízimo, reserva, investimento, viagem, mesada…),
+  configuráveis por entidade; cada entrada (manual ou por notificação) é repartida ao ser lançada. "Separar" executa o
+  destino do pote: transferência para a reserva, aporte no investimento, valor guardado na meta, saída na categoria ou
+  transferência para uma conta. Potes podem valer só para quem recebeu (ex.: "Ygor" só nas entradas do Ygor).
 - **Taxa de poupança** = (entradas − saídas) ÷ entradas do mês.
 - **Contas fixas x renda:** soma das contas fixas vigentes no mês ÷ renda de referência (informada em Contas › Análise,
   ou a média das entradas dos últimos 3 meses). Cartão de crédito não é conta: cadastre as assinaturas e parcelas que vão nele.

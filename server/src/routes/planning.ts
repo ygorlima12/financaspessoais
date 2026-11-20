@@ -8,6 +8,7 @@ import {
 } from '../lib/finance.js';
 import { billsForMonth, billsAnalysis } from '../lib/bills.js';
 import { unreservedByCard } from '../lib/reserve.js';
+import { divisionsMonth } from '../lib/divisions.js';
 
 const goalBody = z.object({
   name: z.string().trim().min(1).max(60),
@@ -80,7 +81,7 @@ export default async function planningRoutes(app: FastifyInstance) {
     const uid = req.userId;
     const eid = req.entityId;
     const { start, end, month } = monthRange();
-    const [accounts, investments, history, flow, reserve, goals, byCategory, pending, budgets, bills, billsInfo, unreserved] = await Promise.all([
+    const [accounts, investments, history, flow, reserve, goals, byCategory, pending, budgets, bills, billsInfo, unreserved, divisions] = await Promise.all([
       accountsWithBalance(uid, eid, true),
       investmentsWithBalance(uid, eid, true),
       netWorthHistory(uid, eid, 12),
@@ -104,6 +105,7 @@ export default async function planningRoutes(app: FastifyInstance) {
       billsForMonth(uid, eid, month),
       billsAnalysis(uid, eid, month),
       unreservedByCard(uid, eid),
+      divisionsMonth(uid, eid, month),
     ]);
     const [uncategorized] = await sql`
       select coalesce(sum(amount_cents), 0) as total from transactions
@@ -137,6 +139,14 @@ export default async function planningRoutes(app: FastifyInstance) {
       expensesByCategory: categories,
       budgets,
       pendingCaptures: pending[0].count,
+      divisions: {
+        configured: divisions.divisions.some((d: any) => d.active),
+        pendingCents: divisions.pendingCents,
+        pendingCount: divisions.pendingCount,
+        doneCents: divisions.doneCents,
+        plannedCents: divisions.plannedCents,
+        unsplitCount: divisions.unsplit.length,
+      },
       cardsUnreserved: unreserved.filter((c) => c.reserveRequired && c.count > 0).map((c) => ({ id: c.id, name: c.name, count: c.count, totalCents: c.totalCents })),
       bills: {
         total: bills.length,

@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useData } from '../data'
-import { fromLocalInput, toLocalInput } from '../format'
+import { fromLocalInput, money, toLocalInput } from '../format'
+import { useApi } from '../hooks'
 import { ErrorBox, Field, MoneyField, Segmented, Sheet, Switch, useSubmit } from './ui'
 
 export type TxKind = 'despesa' | 'receita' | 'transferencia'
@@ -16,6 +17,8 @@ export type TxValues = {
   reserved?: boolean
   installments?: number | null
   countedInOpening?: boolean
+  receivedBy?: string | null
+  split?: boolean
 }
 
 export function TransactionSheet({
@@ -43,7 +46,15 @@ export function TransactionSheet({
     reserved: initial?.reserved ?? false,
     installments: initial?.installments ?? null,
     countedInOpening: initial?.countedInOpening ?? false,
+    receivedBy: initial?.receivedBy ?? null,
+    split: initial?.split ?? true,
   })
+  // Divisões da entrada (potes): membros e prévia
+  const divCfg = useApi<{ divisions: any[]; members: string[]; percentTotal: number }>(v.kind === 'receita' ? '/divisions' : null)
+  const hasDivisions = !!divCfg.data?.divisions.some((d) => d.active && d.percent > 0)
+  const previewPath = v.kind === 'receita' && hasDivisions && v.split && v.amountCents
+    ? `/divisions/preview?amountCents=${v.amountCents}${v.receivedBy ? `&receivedBy=${encodeURIComponent(v.receivedBy)}` : ''}` : null
+  const preview = useApi<{ parts: any[]; allocatedCents: number; freeCents: number }>(previewPath)
   const [parcelado, setParcelado] = useState(!!initial?.installments)
   const isEdit = !!initial?.amountCents && initial?.description !== undefined && (initial as any).id
   const set = (p: Partial<TxValues>) => setV((s) => ({ ...s, ...p }))
@@ -147,9 +158,31 @@ export function TransactionSheet({
           </div>
         </div>
       )}
+      {v.kind === 'receita' && (divCfg.data?.members.length ?? 0) > 0 && (
+        <Field label="Quem recebeu">
+          <select className="input" value={v.receivedBy ?? ''} onChange={(e) => set({ receivedBy: e.target.value || null })}>
+            <option value="">Não importa</option>
+            {divCfg.data!.members.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </Field>
+      )}
       <Field label="Data e hora">
         <input className="input" type="datetime-local" value={v.occurredAt} onChange={(e) => set({ occurredAt: e.target.value })} />
       </Field>
+      {v.kind === 'receita' && hasDivisions && !isEdit && (
+        <div className={v.split ? 'info-box' : ''} style={{ padding: v.split ? '10px 14px' : 0, marginBottom: 12 }}>
+          <div className="check" style={{ padding: v.split ? 0 : '4px 4px 0' }}>
+            <span><b>Dividir esta entrada</b><br /><span className="small muted">Reparte pelos potes configurados em Crescer › Divisões.</span></span>
+            <Switch checked={!!v.split} onChange={(split) => set({ split })} />
+          </div>
+          {v.split && preview.data && v.amountCents ? (
+            <div className="small" style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr auto', rowGap: 4, columnGap: 12 }}>
+              {preview.data.parts.map((p) => <span key={p.divisionId} style={{ display: 'contents' }}><span>{p.icon} {p.name} <span className="muted">{p.percent}%</span></span><span className="num">{money(p.amountCents)}</span></span>)}
+              {preview.data.freeCents > 0 && <span style={{ display: 'contents' }}><span className="muted">Livre</span><span className="num muted">{money(preview.data.freeCents)}</span></span>}
+            </div>
+          ) : null}
+        </div>
+      )}
       <div className={v.countedInOpening ? 'info-box' : ''} style={{ padding: v.countedInOpening ? '10px 14px' : 0, marginBottom: 12 }}>
         <div className="check" style={{ padding: v.countedInOpening ? 0 : '4px 4px 0' }}>
           <span>

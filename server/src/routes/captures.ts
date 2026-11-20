@@ -279,6 +279,8 @@ export default async function captureRoutes(app: FastifyInstance) {
           /** conta cadastrada que esta notificação paga (marca como paga no mês de competência) */
           billId: z.string().uuid().nullish(),
           billMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+          receivedBy: z.string().trim().max(40).nullish(),
+          split: z.boolean().optional(),
         }),
         req.body,
       );

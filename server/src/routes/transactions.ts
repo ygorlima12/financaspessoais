@@ -4,6 +4,7 @@ import { sql } from '../db.js';
 import { HttpError, monthRange, onlySent, parse, requireAuth, zDateTime, zIdParam, zMonth, zPositiveCents } from '../lib/http.js';
 import { learnMerchant } from '../lib/finance.js';
 import { reserveTransaction, unreserveTransaction } from '../lib/reserve.js';
+import { allocateIncome, removeAllocations } from '../lib/divisions.js';
 
 export const txBody = z.object({
   accountId: z.string().uuid(),
@@ -20,6 +21,10 @@ export const txBody = z.object({
   installments: z.preprocess((x) => (x === null || x === '' || x === undefined ? undefined : x), z.coerce.number().int().min(2).max(72).optional()),
   /** já estava refletido no saldo inicial da conta: entra no extrato e nas estatísticas, mas não altera o saldo */
   countedInOpening: z.boolean().optional(),
+  /** entrada: quem recebeu (Ygor, Rebeca…), para as divisões que dependem disso */
+  receivedBy: z.string().trim().max(40).nullish(),
+  /** entrada: dividir pelas divisões configuradas (padrão: sim, quando existirem) */
+  split: z.boolean().optional(),
 });
 export type TxBody = z.infer<typeof txBody>;
 
@@ -46,11 +51,12 @@ export async function insertTx(userId: string, entityId: string, b: TxBody, sour
   const n = b.installments && b.kind === 'despesa' ? b.installments : null;
   if (n) return insertInstallments(userId, entityId, b, n, source);
   const [t] = await sql`
-    insert into transactions (user_id, entity_id, account_id, category_id, kind, amount_cents, description, occurred_at, transfer_account_id, notes, source, counted_in_opening)
+    insert into transactions (user_id, entity_id, account_id, category_id, kind, amount_cents, description, occurred_at, transfer_account_id, notes, source, counted_in_opening, received_by)
     values (${userId}, ${entityId}, ${b.accountId}, ${b.kind === 'transferencia' ? null : b.categoryId ?? null}, ${b.kind}, ${b.amountCents},
             ${b.description}, ${b.occurredAt ?? new Date().toISOString()}, ${b.kind === 'transferencia' ? b.transferAccountId! : null},
-            ${b.notes ?? null}, ${source}, ${b.countedInOpening ?? false})
+            ${b.notes ?? null}, ${source}, ${b.countedInOpening ?? false}, ${b.kind === 'receita' ? b.receivedBy || null : null})
     returning *`;
+  if (b.kind === 'receita' && b.split !== false) await allocateIncome(userId, entityId, t.id);
   return t;
 }
 
@@ -149,10 +155,15 @@ export default async function transactionRoutes(app: FastifyInstance) {
         occurred_at = ${merged.occurredAt instanceof Date ? merged.occurredAt.toISOString() : merged.occurredAt},
         transfer_account_id = ${merged.kind === 'transferencia' ? merged.transferAccountId : null},
         notes = ${merged.notes ?? null},
-        counted_in_opening = ${merged.countedInOpening ?? false}
+        counted_in_opening = ${merged.countedInOpening ?? false},
+        received_by = ${merged.kind === 'receita' ? merged.receivedBy || null : null}
       where id = ${id} and user_id = ${req.userId} and entity_id = ${req.entityId}
       returning *`;
     if (b.categoryId && merged.kind !== 'transferencia') await learnMerchant(req.userId, req.entityId, merged.description, b.categoryId);
+    // Divisões: entrada que deixou de ser entrada perde as pendências; se mudou valor/quem recebeu, recalcula o que ainda não foi separado
+    if (t.kind !== 'receita') await removeAllocations(id);
+    else if (b.split === false) await removeAllocations(id);
+    else if (b.split === true || b.amountCents !== undefined || b.receivedBy !== undefined) await allocateIncome(req.userId, req.entityId, id);
     return t;
   });
 
