@@ -27,7 +27,7 @@ export default async function categoryRoutes(app: FastifyInstance) {
       select c.id, c.name, c.icon, c.color, c.monthly_budget_cents,
         coalesce(sum(t.amount_cents), 0) as spent_cents
       from categories c
-      left join transactions t on t.category_id = c.id and t.kind = 'despesa'
+      left join transactions t on t.category_id = c.id and t.kind in ('despesa', 'transferencia')
         and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
       where c.user_id = ${req.userId} and c.entity_id = ${req.entityId} and c.kind = 'despesa' and not c.archived
       group by c.id
@@ -53,12 +53,12 @@ export default async function categoryRoutes(app: FastifyInstance) {
       sql`
         with m as (select date_trunc('month', now()) - (n || ' months')::interval as start_at from generate_series(0, 11) n)
         select to_char(m.start_at, 'YYYY-MM') as month, coalesce(sum(t.amount_cents), 0) as total_cents, count(t.id)::int as count
-        from m left join transactions t on t.user_id = ${req.userId} and t.entity_id = ${req.entityId} and t.category_id = ${id} and t.kind = ${c.kind}
+        from m left join transactions t on t.user_id = ${req.userId} and t.entity_id = ${req.entityId} and t.category_id = ${id} and t.kind in (${c.kind}, 'transferencia')
           and t.occurred_at >= m.start_at and t.occurred_at < m.start_at + interval '1 month'
         group by m.start_at order by m.start_at`,
       sql`
         select lower(description) as key, max(description) as description, sum(amount_cents) as total_cents, count(*)::int as count
-        from transactions where user_id = ${req.userId} and entity_id = ${req.entityId} and category_id = ${id} and kind = ${c.kind}
+        from transactions where user_id = ${req.userId} and entity_id = ${req.entityId} and category_id = ${id} and kind in (${c.kind}, 'transferencia')
           and occurred_at >= date_trunc('month', now()) - interval '5 months'
         group by lower(description) order by total_cents desc limit 6`,
     ]);

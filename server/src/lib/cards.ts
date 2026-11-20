@@ -48,8 +48,10 @@ export async function invoiceFor(userId: string, entityId: string, card: any, mo
       and occurred_at >= (${w.start}::date + interval '1 day') and occurred_at < (${w.end}::date + interval '1 day')`;
   // Pagamentos: transferências que entram no cartão entre este fechamento e o próximo
   const [unres] = await sql`
-    select coalesce(sum(amount_cents), 0) as total, count(*)::int as count from transactions
-    where user_id = ${userId} and entity_id = ${entityId} and account_id = ${card.id} and kind = 'despesa' and reserved_at is null
+    select coalesce(sum(amount_cents) filter (where reserved_at is null), 0) as total, count(*) filter (where reserved_at is null)::int as count,
+      coalesce(sum(amount_cents) filter (where reserved_at is not null), 0) as reserved, count(*) filter (where reserved_at is not null)::int as reserved_count
+    from transactions
+    where user_id = ${userId} and entity_id = ${entityId} and account_id = ${card.id} and kind = 'despesa'
       and occurred_at >= (${w.start}::date + interval '1 day') and occurred_at < (${w.end}::date + interval '1 day')`;
   const [pay] = await sql`
     select coalesce(sum(amount_cents), 0) as paid from transactions
@@ -92,6 +94,8 @@ export async function invoiceFor(userId: string, entityId: string, card: any, mo
     remainingCents: Math.max(0, total - paid),
     unreservedCents: Number(unres.total),
     unreservedCount: unres.count,
+    reservedCents: Number(unres.reserved),
+    reservedCount: unres.reservedCount,
     status,
     items,
     payments,

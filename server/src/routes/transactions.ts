@@ -52,7 +52,7 @@ export async function insertTx(userId: string, entityId: string, b: TxBody, sour
   if (n) return insertInstallments(userId, entityId, b, n, source);
   const [t] = await sql`
     insert into transactions (user_id, entity_id, account_id, category_id, kind, amount_cents, description, occurred_at, transfer_account_id, notes, source, counted_in_opening, received_by)
-    values (${userId}, ${entityId}, ${b.accountId}, ${b.kind === 'transferencia' ? null : b.categoryId ?? null}, ${b.kind}, ${b.amountCents},
+    values (${userId}, ${entityId}, ${b.accountId}, ${b.categoryId ?? null}, ${b.kind}, ${b.amountCents},
             ${b.description}, ${b.occurredAt ?? new Date().toISOString()}, ${b.kind === 'transferencia' ? b.transferAccountId! : null},
             ${b.notes ?? null}, ${source}, ${b.countedInOpening ?? false}, ${b.kind === 'receita' ? b.receivedBy || null : null})
     returning *`;
@@ -148,7 +148,7 @@ export default async function transactionRoutes(app: FastifyInstance) {
     const [t] = await sql`
       update transactions set
         account_id = ${merged.accountId},
-        category_id = ${merged.kind === 'transferencia' ? null : merged.categoryId ?? null},
+        category_id = ${merged.categoryId ?? null},
         kind = ${merged.kind},
         amount_cents = ${merged.amountCents},
         description = ${merged.description},
@@ -170,7 +170,7 @@ export default async function transactionRoutes(app: FastifyInstance) {
   /** Compra no cartão: marcar/desmarcar "já guardei o dinheiro" */
   app.post('/api/transactions/:id/reserve', async (req) => {
     const { id } = parse(zIdParam, req.params);
-    const b = parse(z.object({ fromAccountId: z.string().uuid().nullish(), transfer: z.boolean().optional() }), req.body ?? {});
+    const b = parse(z.object({ fromAccountId: z.string().uuid().nullish(), toAccountId: z.string().uuid().nullish(), transfer: z.boolean().optional() }), req.body ?? {});
     const r = await reserveTransaction(req.userId, req.entityId, id, b);
     if (!r) throw new HttpError(404, 'Lançamento não encontrado.');
     return r;

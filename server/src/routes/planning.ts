@@ -91,14 +91,14 @@ export default async function planningRoutes(app: FastifyInstance) {
       sql`
         select c.id, c.name, c.icon, c.color, sum(t.amount_cents) as total_cents
         from transactions t join categories c on c.id = t.category_id
-        where t.user_id = ${uid} and t.entity_id = ${eid} and t.kind = 'despesa' and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
+        where t.user_id = ${uid} and t.entity_id = ${eid} and t.kind in ('despesa', 'transferencia') and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
         group by c.id order by total_cents desc`,
       sql`select count(*)::int as count from captures where user_id = ${uid} and entity_id = ${eid} and status = 'pendente'`,
       sql`
         select c.id, c.name, c.icon, c.color, c.monthly_budget_cents,
           coalesce(sum(t.amount_cents), 0) as spent_cents
         from categories c
-        left join transactions t on t.category_id = c.id and t.kind = 'despesa'
+        left join transactions t on t.category_id = c.id and t.kind in ('despesa', 'transferencia')
           and t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date
         where c.user_id = ${uid} and c.entity_id = ${eid} and c.monthly_budget_cents is not null and not c.archived
         group by c.id order by coalesce(sum(t.amount_cents), 0)::float / c.monthly_budget_cents desc`,

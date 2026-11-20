@@ -27,7 +27,7 @@ export default async function cardRoutes(app: FastifyInstance) {
   /** Marca todas as compras não guardadas da fatura como guardadas (uma transferência por compra, se configurado) */
   app.post('/api/cards/:id/reserve-all', async (req) => {
     const { id } = parse(zIdParam, req.params);
-    const b = parse(z.object({ month: zMonth, fromAccountId: z.string().uuid().nullish(), transfer: z.boolean().optional() }), req.body);
+    const b = parse(z.object({ month: zMonth, fromAccountId: z.string().uuid().nullish(), toAccountId: z.string().uuid().nullish(), transfer: z.boolean().optional() }), req.body);
     const card = await ownCard(req.userId, req.entityId, id);
     const inv = await invoiceFor(req.userId, req.entityId, card, b.month, true);
     let n = 0;

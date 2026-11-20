@@ -152,6 +152,9 @@ Passo a passo em **[docs/android-macrodroid.md](docs/android-macrodroid.md)**. R
   o que cobre notificações e lançamentos manuais), mostra o saldo do banco x saldo do app e lista só as linhas novas, com
   tipo sugerido (saída, entrada, foi para / veio de outra conta, ignorar) e categoria aprendida. Reimportar o mesmo arquivo
   não duplica nada.
+- **Cartão › guardar:** ao marcar "guardar" (ou "Guardar tudo") o app pergunta de qual conta o dinheiro sai e para qual
+  poupança vai, registra a transferência (desconta da origem) e a classifica na categoria 💳 Cartão de crédito, que
+  aparece em Início e em Categorias como "quanto saiu para o cartão" neste mês. A fatura mostra guardado x falta guardar.
 - **Taxa de poupança** = (entradas − saídas) ÷ entradas do mês.
 - **Contas fixas x renda:** soma das contas fixas vigentes no mês ÷ renda de referência (informada em Contas › Análise,
   ou a média das entradas dos últimos 3 meses). Cartão de crédito não é conta: cadastre as assinaturas e parcelas que vão nele.

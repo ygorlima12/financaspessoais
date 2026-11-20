@@ -4,14 +4,14 @@ import { api } from '../api'
 import { useData } from '../data'
 import { fromLocalInput, money, monthLabel, pct, shiftMonth, timeLabel, toLocalInput } from '../format'
 import { notifyChanged, useApi } from '../hooks'
-import { Empty, ErrorBox, Field, MoneyField, Progress, Sheet, Spinner, useSubmit } from '../components/ui'
+import { Empty, ErrorBox, Field, MoneyField, Progress, Sheet, Spinner, Switch, useSubmit } from '../components/ui'
 import { TransactionSheet } from '../components/TransactionForm'
 import { SpendCheckSheet } from '../components/SpendCheck'
 
 type Invoice = {
   month: string; periodStart: string; periodEnd: string; dueDate: string
   purchasesCents: number; creditsCents: number; totalCents: number; paidCents: number; remainingCents: number
-  unreservedCents: number; unreservedCount: number
+  unreservedCents: number; unreservedCount: number; reservedCents: number; reservedCount: number
   status: 'aberta' | 'fechada' | 'paga' | 'vencida' | 'parcial'
   items: any[]; payments: any[]
 }
@@ -43,19 +43,16 @@ export default function Cards() {
   const [spend, setSpend] = useState(false)
   const { accounts } = useData()
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [reserveTarget, setReserveTarget] = useState<{ tx?: any; all?: boolean } | null>(null)
   const toggleReserve = async (t: any) => {
+    if (!t.reservedAt) { setReserveTarget({ tx: t }); return }
     setBusyId(t.id)
     try {
-      await api(`/transactions/${t.id}/reserve`, t.reservedAt ? { method: 'DELETE' } : { body: {} })
+      await api(`/transactions/${t.id}/reserve`, { method: 'DELETE' })
       notifyChanged(); inv.reload(); reload()
     } catch (e: any) { alert(e.message) } finally { setBusyId(null) }
   }
-  const reserveAll = async () => {
-    if (!card || !month) return
-    if (!confirm(`Marcar ${inv.data?.unreservedCount} compras como guardadas${card.reserveAccountId ? ' e registrar as transferências para a poupança' : ''}?`)) return
-    await api(`/cards/${card.id}/reserve-all`, { body: { month } })
-    notifyChanged(); inv.reload(); reload()
-  }
+  const reserveAll = () => setReserveTarget({ all: true })
 
   if (loading && !cards) return <Spinner />
 
@@ -100,6 +97,11 @@ export default function Cards() {
                 <div className="value num" style={{ color: '#fff' }}>{money(inv.data.totalCents)}</div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span className="pill" style={{ background: 'rgba(255,255,255,.2)', color: '#fff' }}>{STATUS[inv.data.status].label}</span>
+                  {card.reserveRequired && (inv.data.reservedCents > 0 || inv.data.unreservedCents > 0) && (
+                    <span className="pill" style={{ background: inv.data.unreservedCents === 0 ? 'rgba(52,199,89,.35)' : 'rgba(255,255,255,.2)', color: '#fff', marginLeft: 6 }}>
+                      💰 {money(inv.data.reservedCents)} guardados
+                    </span>
+                  )}
                   <span className="small" style={{ color: 'rgba(255,255,255,.8)' }}>
                     {inv.data.status === 'aberta' ? `fecha ${d(inv.data.periodEnd)} · vence ${d(inv.data.dueDate)}` : `venceu ${d(inv.data.dueDate)}`}
                     {inv.data.paidCents > 0 && ` · pago ${money(inv.data.paidCents)}`}
@@ -120,25 +122,34 @@ export default function Cards() {
             ) : <Spinner />}
           </div>
 
-          {card.reserveRequired && inv.data && (
-            <div className="card" style={{ marginTop: 12, background: inv.data.unreservedCents > 0 ? 'color-mix(in srgb, var(--orange) 12%, var(--bg-elev))' : undefined }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <div>
-                  <strong>{inv.data.unreservedCents > 0 ? '⚠️ Sem dinheiro guardado' : '✓ Tudo guardado'}</strong>
-                  <div className="small muted">
-                    {inv.data.unreservedCents > 0
-                      ? `${money(inv.data.unreservedCents)} em ${inv.data.unreservedCount} ${inv.data.unreservedCount === 1 ? 'compra' : 'compras'} desta fatura`
-                      : 'Todas as compras desta fatura já têm o dinheiro separado'}
-                    {card.reserveAccountId ? ` · poupança: ${accounts.find((a) => a.id === card.reserveAccountId)?.name ?? ''}` : ''}
-                  </div>
+          {card.reserveRequired && inv.data && (() => {
+            const inv2 = inv.data!
+            const purchases = inv2.reservedCents + inv2.unreservedCents
+            const ratio = purchases > 0 ? inv2.reservedCents / purchases : 1
+            const reserveAcc = accounts.find((a) => a.id === card.reserveAccountId)
+            const allDone = inv2.unreservedCents === 0
+            return (
+              <div className="card" style={{ marginTop: 12, background: allDone ? 'color-mix(in srgb, var(--green) 10%, var(--bg-elev))' : 'color-mix(in srgb, var(--orange) 12%, var(--bg-elev))' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                  <strong>{allDone ? '✓ Tudo guardado' : '💰 Dinheiro guardado'}</strong>
+                  <span className="num" style={{ fontWeight: 700, fontSize: 18, color: allDone ? 'var(--green)' : undefined }}>{money(inv2.reservedCents)} <span className="muted small" style={{ fontWeight: 400 }}>de {money(purchases)}</span></span>
                 </div>
-                {inv.data.unreservedCents > 0 && <button className="btn sm" style={{ background: 'var(--orange)' }} onClick={reserveAll}>Guardar tudo</button>}
+                <div style={{ margin: '8px 0 6px' }}><Progress value={ratio} color={allDone ? 'var(--green)' : 'var(--orange)'} /></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <div className="small muted">
+                    {allDone
+                      ? `${inv2.reservedCount} ${inv2.reservedCount === 1 ? 'compra' : 'compras'} desta fatura com o dinheiro separado`
+                      : `Falta guardar ${money(inv2.unreservedCents)} (${inv2.unreservedCount} ${inv2.unreservedCount === 1 ? 'compra' : 'compras'})`}
+                    {reserveAcc ? ` · ${reserveAcc.name}: ${money(reserveAcc.balanceCents)}` : ''}
+                  </div>
+                  {!allDone && <button className="btn sm" style={{ background: 'var(--orange)', whiteSpace: 'nowrap' }} onClick={reserveAll}>Guardar tudo</button>}
+                </div>
+                {!card.reserveAccountId && (
+                  <div className="small muted" style={{ marginTop: 8 }}>Dica: em <Link to="/ajustes?tab=contas">Ajustes › Contas</Link>, defina “guardar de” e “guardar em” para o app registrar a transferência para a poupança quando você marcar.</div>
+                )}
               </div>
-              {!card.reserveAccountId && (
-                <div className="small muted" style={{ marginTop: 8 }}>Dica: em <Link to="/ajustes?tab=contas">Ajustes › Contas</Link>, defina “guardar de” e “guardar em” para o app registrar a transferência para a poupança quando você marcar.</div>
-              )}
-            </div>
-          )}
+            )
+          })()}
 
           {card.limitCents && (
             <div className="card" style={{ marginTop: 12 }}>
@@ -215,6 +226,10 @@ export default function Cards() {
       )}
 
       {spend && <SpendCheckSheet onClose={() => setSpend(false)} />}
+      {reserveTarget && card && month && (
+        <ReserveSheet card={card} month={month} target={reserveTarget} invoice={inv.data}
+          onClose={() => setReserveTarget(null)} onDone={() => { setReserveTarget(null); notifyChanged(); inv.reload(); reload() }} />
+      )}
       {help && (
         <Sheet title="Como funciona o cartão" onClose={() => setHelp(false)}>
           <div className="card">
@@ -261,6 +276,64 @@ function PaySheet({ card, inv, onClose }: { card: Card; inv: Invoice; onClose: (
       <div className="small muted" style={{ marginBottom: 12 }}>Isso cria uma transferência da conta para o cartão. Não conta como gasto (as compras já contaram).</div>
       <ErrorBox error={error} />
       <button className="btn block" disabled={busy} onClick={save}>Confirmar pagamento</button>
+    </Sheet>
+  )
+}
+
+/** Guardar o dinheiro de uma compra (ou de todas as pendentes): pergunta de onde sai e para onde vai. */
+function ReserveSheet({ card, month, target, invoice, onClose, onDone }: {
+  card: any; month: string; target: { tx?: any; all?: boolean }; invoice: Invoice | null; onClose: () => void; onDone: () => void
+}) {
+  const { accounts } = useData()
+  const bank = accounts.filter((a) => a.type !== 'cartao' && !a.archived)
+  const [from, setFrom] = useState<string>(card.reserveFromAccountId ?? bank.find((a) => !a.isReserve)?.id ?? '')
+  const [to, setTo] = useState<string>(card.reserveAccountId ?? bank.find((a) => a.isReserve && a.id !== from)?.id ?? '')
+  const [transfer, setTransfer] = useState(true)
+  const [remember, setRemember] = useState(!card.reserveFromAccountId || !card.reserveAccountId)
+  const { busy, error, run } = useSubmit()
+  const amount = target.all ? invoice?.unreservedCents ?? 0 : target.tx?.amountCents ?? 0
+  const count = target.all ? invoice?.unreservedCount ?? 0 : 1
+  const fromAcc = bank.find((a) => a.id === from)
+  const save = () => run(async () => {
+    if (transfer && !from) throw new Error('Escolha de qual conta o dinheiro sai.')
+    if (transfer && !to) throw new Error('Escolha para onde o dinheiro vai (a poupança do cartão).')
+    if (transfer && from === to) throw new Error('Origem e destino precisam ser contas diferentes.')
+    const body = { fromAccountId: transfer ? from : null, toAccountId: transfer ? to : null, transfer }
+    if (target.all) await api(`/cards/${card.id}/reserve-all`, { body: { month, ...body } })
+    else await api(`/transactions/${target.tx.id}/reserve`, { body })
+    if (remember && transfer) await api(`/accounts/${card.id}`, { method: 'PATCH', body: { reserveFromAccountId: from, reserveAccountId: to } })
+    onDone()
+  })
+  return (
+    <Sheet title={target.all ? 'Guardar tudo' : 'Guardar dinheiro'} onClose={onClose} action={<button className="link-btn" style={{ fontWeight: 600 }} disabled={busy} onClick={save}>Guardar</button>}>
+      <div className="card" style={{ textAlign: 'center', marginBottom: 12 }}>
+        <div className="label">{target.all ? `${count} ${count === 1 ? 'compra' : 'compras'} sem dinheiro guardado` : target.tx.description || 'Compra'}</div>
+        <div className="value num" style={{ color: 'var(--orange)' }}>{money(amount)}</div>
+      </div>
+      <div className="check" style={{ marginBottom: 4 }}>
+        <span><b>Registrar a transferência</b><br /><span className="small muted">Desconta da conta de origem e soma na poupança. Entra na categoria 💳 Cartão de crédito.</span></span>
+        <Switch checked={transfer} onChange={setTransfer} />
+      </div>
+      {transfer && (
+        <>
+          <Field label="Sai de">
+            <select className="input" value={from} onChange={(e) => setFrom(e.target.value)}>
+              <option value="">Escolha…</option>
+              {bank.map((a) => <option key={a.id} value={a.id}>{a.name} · {money(a.balanceCents)}</option>)}
+            </select>
+          </Field>
+          {fromAcc && amount > fromAcc.balanceCents && <div className="warn-box small" style={{ marginBottom: 12 }}>Saldo de {fromAcc.name} ({money(fromAcc.balanceCents)}) é menor que o valor.</div>}
+          <Field label="Vai para (poupança do cartão)">
+            <select className="input" value={to} onChange={(e) => setTo(e.target.value)}>
+              <option value="">Escolha…</option>
+              {bank.filter((a) => a.id !== from).map((a) => <option key={a.id} value={a.id}>{a.name} · {money(a.balanceCents)}</option>)}
+            </select>
+          </Field>
+          <div className="check"><span className="small">Lembrar essas contas para este cartão</span><Switch checked={remember} onChange={setRemember} /></div>
+        </>
+      )}
+      <ErrorBox error={error} />
+      <button className="btn block" disabled={busy} onClick={save}>{busy ? 'Guardando…' : transfer ? `Guardar ${money(amount)}` : 'Só marcar como guardado'}</button>
     </Sheet>
   )
 }
