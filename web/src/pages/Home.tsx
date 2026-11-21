@@ -117,9 +117,10 @@ export default function Home() {
             </AreaChart>
           </ResponsiveContainer>
         </div>
-        <div className="grid grid-2" style={{ marginTop: 12 }}>
-          <div className="stat"><div className="label">Em contas</div><div className="value num">{money(d.accountsTotalCents)}</div></div>
-          <div className="stat"><div className="label">Investido</div><div className="value num">{money(d.investmentsTotalCents)}</div></div>
+        <div className="grid" style={{ marginTop: 12, gridTemplateColumns: d.cardsTotalCents < 0 ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))' }}>
+          <div className="stat"><div className="label">Em contas</div><div className="value num" style={{ fontSize: 18 }}>{money(d.accountsTotalCents)}</div></div>
+          <div className="stat"><div className="label">Investido</div><div className="value num" style={{ fontSize: 18 }}>{money(d.investmentsTotalCents)}</div></div>
+          {d.cardsTotalCents < 0 && <div className="stat"><div className="label">Cartão</div><div className="value num neg" style={{ fontSize: 18 }}>{money(d.cardsTotalCents)}</div></div>}
         </div>
       </div>
 

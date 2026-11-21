@@ -130,11 +130,13 @@ export default async function planningRoutes(app: FastifyInstance) {
         and occurred_at >= ${start}::date and occurred_at < ${end}::date`;
 
     const slim = (b: any) => ({ id: b.id, name: b.name, amountCents: b.amountCents, dueDate: b.dueDate, icon: b.categoryIcon, status: b.status, daysLeft: b.daysLeft });
-    const accountsTotal = accounts.reduce((s, a) => s + a.balanceCents, 0);
+    // "Em contas" = só contas bancárias/carteira; o cartão entra à parte como dívida (saldo negativo = fatura devida)
+    const accountsTotal = accounts.filter((a) => a.type !== 'cartao').reduce((s, a) => s + a.balanceCents, 0);
+    const cardsTotal = accounts.filter((a) => a.type === 'cartao').reduce((s, a) => s + a.balanceCents, 0);
     const investmentsTotal = investments.reduce((s, i) => s + i.balanceCents, 0);
     const current = flow[flow.length - 1] ?? { incomeCents: 0, expenseCents: 0, investedCents: 0 };
     const prevNetWorth = history.length > 1 ? history[history.length - 2].netWorthCents : 0;
-    const netWorth = accountsTotal + investmentsTotal;
+    const netWorth = accountsTotal + cardsTotal + investmentsTotal;
     const categories = [...byCategory] as any[];
     if (uncategorized.total > 0) categories.push({ id: null, name: 'Sem categoria', icon: '❔', color: '#636366', totalCents: uncategorized.total });
 
@@ -143,6 +145,7 @@ export default async function planningRoutes(app: FastifyInstance) {
       netWorthCents: netWorth,
       netWorthChangeCents: netWorth - prevNetWorth,
       accountsTotalCents: accountsTotal,
+      cardsTotalCents: cardsTotal,
       investmentsTotalCents: investmentsTotal,
       incomeCents: current.incomeCents,
       expenseCents: current.expenseCents,
