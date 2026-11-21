@@ -5,7 +5,7 @@ import { api } from '../api'
 import { useData } from '../data'
 import { money, moneyCompact, monthLabel, pct, signedMoney } from '../format'
 import { notifyChanged, useApi } from '../hooks'
-import { Progress, Spinner } from '../components/ui'
+import { Progress, Sheet, Spinner } from '../components/ui'
 import { TransactionSheet } from '../components/TransactionForm'
 import { SpendCheckSheet } from '../components/SpendCheck'
 
@@ -27,8 +27,10 @@ export default function Home() {
   const { data: d, loading } = useApi<any>('/dashboard')
   const nt = useNewTransaction()
   const [spend, setSpend] = useState(false)
+  const [alerts, setAlerts] = useState(false)
   if (loading && !d) return <Spinner />
   if (!d) return null
+  const pend = pendingItems(d)
 
   const hour = new Date().getHours()
   const greet = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
@@ -55,57 +57,19 @@ export default function Home() {
             )}
           </h1>
         </div>
-        <button className="btn sm" style={{ background: 'linear-gradient(135deg, #34c759, #0a84ff)' }} onClick={() => setSpend(true)}>💸 Posso gastar?</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn icon secondary" aria-label="Pendências" style={{ position: 'relative' }} onClick={() => setAlerts(true)}>
+            🔔
+            {pend.length > 0 && <span className="badge" style={{ position: 'absolute', top: -4, right: -4, left: 'auto' }}>{pend.length}</span>}
+          </button>
+          <button className="btn sm" style={{ background: 'linear-gradient(135deg, #34c759, #0a84ff)' }} onClick={() => setSpend(true)}>💸 Posso gastar?</button>
+        </div>
       </div>
       {spend && <SpendCheckSheet onClose={() => setSpend(false)} />}
 
-      {d.pendingCaptures > 0 && (
-        <Link to="/entrada" className="card row" style={{ marginBottom: 12, color: 'inherit' }}>
-          <div className="icon-dot" style={{ background: 'color-mix(in srgb, var(--orange) 20%, transparent)' }}>🔔</div>
-          <div className="grow">
-            <div className="title" style={{ fontWeight: 600 }}>{d.pendingCaptures} {d.pendingCaptures === 1 ? 'notificação' : 'notificações'} para revisar</div>
-            <div className="meta">Confirme os valores capturados do celular</div>
-          </div>
-          <span className="chev">›</span>
-        </Link>
-      )}
+      {alerts && <PendingSheet items={pend} onClose={() => setAlerts(false)} />}
 
-      {d.budgets.some((b: any) => b.spentCents > b.monthlyBudgetCents) && (
-        <div className="card" style={{ marginBottom: 12, background: 'color-mix(in srgb, var(--red) 10%, var(--bg-elev))' }}>
-          <strong>⚠️ Limite estourado</strong>
-          <div className="small" style={{ marginTop: 4 }}>
-            {d.budgets.filter((b: any) => b.spentCents > b.monthlyBudgetCents).map((b: any) => (
-              <Link key={b.id} to={`/categoria/${b.id}`} style={{ display: 'block', color: 'inherit', padding: '2px 0' }}>
-                {b.icon} {b.name}: {money(b.spentCents)} de {money(b.monthlyBudgetCents)} <span className="neg">(+{money(b.spentCents - b.monthlyBudgetCents)})</span> ›
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {d.cardsUnreserved?.length > 0 && (
-        <Link to="/cartao" className="card row" style={{ marginBottom: 12, color: 'inherit', background: 'color-mix(in srgb, var(--orange) 12%, var(--bg-elev))' }}>
-          <div className="icon-dot" style={{ background: 'color-mix(in srgb, var(--orange) 25%, transparent)' }}>💳</div>
-          <div className="grow">
-            <div className="title" style={{ fontWeight: 600 }}>{money(d.cardsUnreserved.reduce((s: number, c: any) => s + c.totalCents, 0))} no cartão sem dinheiro guardado</div>
-            <div className="meta">{d.cardsUnreserved.map((c: any) => `${c.name}: ${c.count} ${c.count === 1 ? 'compra' : 'compras'}`).join(' · ')}</div>
-          </div>
-          <span className="chev">›</span>
-        </Link>
-      )}
-
-      {d.divisions?.configured && (d.divisions.pendingCount > 0 || d.divisions.unsplitCount > 0) && (
-        <Link to="/crescer?tab=divisoes" className="card row" style={{ marginBottom: 12, color: 'inherit', background: 'color-mix(in srgb, var(--purple) 12%, var(--bg-elev))' }}>
-          <div className="icon-dot" style={{ background: 'color-mix(in srgb, var(--purple) 25%, transparent)' }}>🧩</div>
-          <div className="grow">
-            <div className="title" style={{ fontWeight: 600 }}>
-              {d.divisions.pendingCount > 0 ? `${money(d.divisions.pendingCents)} das entradas ainda não separados` : `${d.divisions.unsplitCount} ${d.divisions.unsplitCount === 1 ? 'entrada sem divisão' : 'entradas sem divisão'}`}
-            </div>
-            <div className="meta">{d.divisions.pendingCount > 0 ? `${d.divisions.pendingCount} ${d.divisions.pendingCount === 1 ? 'pote pendente' : 'potes pendentes'} · ${money(d.divisions.doneCents)} já separados` : 'Toque para dividir pelos potes'}</div>
-          </div>
-          <span className="chev">›</span>
-        </Link>
-      )}
+      <CardIndicator c={d.cards} />
 
       {d.bills.total > 0 && (
         <Link to="/contas" className="card" style={{ display: 'block', marginBottom: 12, color: 'inherit' }}>
@@ -274,5 +238,85 @@ export default function Home() {
       <button className="fab" aria-label="Novo lançamento" onClick={nt.open}>+</button>
       {nt.sheet}
     </>
+  )
+}
+
+type Pend = { key: string; icon: string; title: string; meta?: string; to: string; tone: 'red' | 'orange' | 'purple' | 'blue' }
+
+function pendingItems(d: any): Pend[] {
+  const out: Pend[] = []
+  if (d.pendingCaptures > 0) out.push({ key: 'cap', icon: '🔔', tone: 'blue', to: '/entrada', title: `${d.pendingCaptures} ${d.pendingCaptures === 1 ? 'notificação' : 'notificações'} para revisar`, meta: 'Confirme os valores capturados do celular' })
+  for (const b of d.bills?.late ?? []) out.push({ key: 'late' + b.id, icon: '🧾', tone: 'red', to: '/contas', title: `${b.name} atrasada`, meta: `${money(b.amountCents)} · venceu dia ${Number(b.dueDate.slice(8, 10))}` })
+  for (const b of (d.budgets ?? []).filter((b: any) => b.spentCents > b.monthlyBudgetCents)) out.push({ key: 'bud' + b.id, icon: b.icon, tone: 'red', to: `/categoria/${b.id}`, title: `${b.name}: limite estourado`, meta: `${money(b.spentCents)} de ${money(b.monthlyBudgetCents)} (+${money(b.spentCents - b.monthlyBudgetCents)})` })
+  if (d.cardsUnreserved?.length) out.push({ key: 'unres', icon: '💳', tone: 'orange', to: '/cartao', title: `${money(d.cardsUnreserved.reduce((s: number, c: any) => s + c.totalCents, 0))} no cartão sem dinheiro guardado`, meta: d.cardsUnreserved.map((c: any) => `${c.name}: ${c.count}`).join(' · ') })
+  if (d.divisions?.configured && d.divisions.pendingCount > 0) out.push({ key: 'div', icon: '🧩', tone: 'purple', to: '/crescer?tab=divisoes', title: `${money(d.divisions.pendingCents)} das entradas ainda não separados`, meta: `${d.divisions.pendingCount} ${d.divisions.pendingCount === 1 ? 'pote pendente' : 'potes pendentes'}` })
+  if (d.divisions?.configured && d.divisions.unsplitCount > 0) out.push({ key: 'unsplit', icon: '🧩', tone: 'purple', to: '/crescer?tab=divisoes', title: `${d.divisions.unsplitCount} ${d.divisions.unsplitCount === 1 ? 'entrada sem divisão' : 'entradas sem divisão'}`, meta: 'Toque para dividir pelos potes' })
+  for (const b of d.bills?.upcoming ?? []) out.push({ key: 'up' + b.id, icon: '📅', tone: 'blue', to: '/contas', title: `${b.name} ${b.daysLeft === 0 ? 'vence hoje' : `vence dia ${Number(b.dueDate.slice(8, 10))}`}`, meta: money(b.amountCents) })
+  return out
+}
+
+const TONE: Record<Pend['tone'], string> = { red: 'var(--red)', orange: 'var(--orange)', purple: 'var(--purple)', blue: 'var(--blue)' }
+
+function PendingSheet({ items, onClose }: { items: Pend[]; onClose: () => void }) {
+  return (
+    <Sheet title="Pendências" onClose={onClose}>
+      {items.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center' }}><div style={{ fontSize: 36 }}>✅</div><div style={{ fontWeight: 600 }}>Nada pendente</div><div className="small muted">Contas em dia, cartão guardado, entradas divididas.</div></div>
+      ) : (
+        <div className="list">
+          {items.map((p) => (
+            <Link key={p.key} to={p.to} className="row" style={{ color: 'inherit' }} onClick={onClose}>
+              <div className="icon-dot" style={{ background: `color-mix(in srgb, ${TONE[p.tone]} 22%, transparent)` }}>{p.icon}</div>
+              <div className="grow"><div className="title">{p.title}</div>{p.meta && <div className="meta">{p.meta}</div>}</div>
+              <span className="chev">›</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
+/** Cartão de crédito no mês: quanto devemos, que fatia das saídas/renda isso é e se precisa frear. */
+function CardIndicator({ c }: { c: any }) {
+  if (!c || c.count === 0) return null
+  const inc = c.shareOfIncome
+  const level: 'ok' | 'atencao' | 'alto' = inc == null ? (c.shareOfExpenses != null && c.shareOfExpenses > 0.6 ? 'atencao' : 'ok') : inc <= 0.2 ? 'ok' : inc <= 0.3 ? 'atencao' : 'alto'
+  const color = level === 'ok' ? 'var(--green)' : level === 'atencao' ? 'var(--orange)' : 'var(--red)'
+  const label = level === 'ok' ? 'Sob controle' : level === 'atencao' ? 'Atenção' : 'Gaste menos no cartão'
+  const delta = c.spentPrevMonthCents > 0 ? (c.spentMonthCents - c.spentPrevMonthCents) / c.spentPrevMonthCents : null
+  const tip = level === 'alto'
+    ? `A fatura passa de 30% da renda (${pct(inc)}). Segure as compras no cartão até o próximo fechamento e pague a fatura inteira: o rotativo é o juro mais caro que existe.`
+    : level === 'atencao'
+      ? `Entre 20% e 30% da renda. Evite parcelar coisas novas este mês para não empurrar a conta para os próximos.`
+      : inc != null ? `Abaixo de 20% da renda. Mantenha o hábito de guardar o valor na hora da compra.` : 'Informe a renda em Contas › Análise para comparar com a sua renda.'
+  return (
+    <Link to="/cartao" className="card" style={{ display: 'block', marginBottom: 12, color: 'inherit', borderLeft: `4px solid ${color}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+        <strong>💳 Cartão de crédito</strong>
+        <span className="pill" style={{ background: `color-mix(in srgb, ${color} 18%, transparent)`, color }}>{label}</span>
+      </div>
+      <div className="num" style={{ fontSize: 26, fontWeight: 700, marginTop: 6 }}>{money(c.owedCents)} <span className="muted small" style={{ fontWeight: 400 }}>devendo</span></div>
+      <div className="small muted" style={{ marginTop: 2 }}>
+        {c.dueThisMonthCents > 0 ? `${money(c.dueThisMonthCents)} vencem este mês · ` : ''}{money(c.openCents)} na fatura aberta
+      </div>
+      <div className="grid grid-2" style={{ marginTop: 10, gap: 8 }}>
+        <div>
+          <div className="small muted">Das saídas do mês</div>
+          <div className="num" style={{ fontWeight: 600 }}>{c.shareOfExpenses != null ? pct(c.shareOfExpenses) : '—'}</div>
+          <Progress value={c.shareOfExpenses ?? 0} color={color} />
+        </div>
+        <div>
+          <div className="small muted">Da renda mensal</div>
+          <div className="num" style={{ fontWeight: 600 }}>{inc != null ? pct(inc) : '—'} <span className="muted small" style={{ fontWeight: 400 }}>· teto 30%</span></div>
+          <Progress value={inc != null ? Math.min(1, inc / 0.3) : 0} color={color} />
+        </div>
+      </div>
+      <div className="small" style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'baseline' }}>
+        {delta != null && <span className="pill" style={{ background: delta > 0 ? 'color-mix(in srgb, var(--red) 15%, transparent)' : 'color-mix(in srgb, var(--green) 15%, transparent)', color: delta > 0 ? 'var(--red)' : 'var(--green)' }}>{delta > 0 ? '▲' : '▼'} {pct(Math.abs(delta))} vs mês passado</span>}
+        <span className="muted">{money(c.spentMonthCents)} em compras este mês</span>
+      </div>
+      <div className="small muted" style={{ marginTop: 6 }}>{tip}</div>
+    </Link>
   )
 }

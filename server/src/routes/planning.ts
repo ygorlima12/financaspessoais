@@ -9,6 +9,7 @@ import {
 import { billsForMonth, billsAnalysis } from '../lib/bills.js';
 import { unreservedByCard } from '../lib/reserve.js';
 import { divisionsMonth } from '../lib/divisions.js';
+import { cardsSummary } from '../lib/cards.js';
 
 const goalBody = z.object({
   name: z.string().trim().min(1).max(60),
@@ -81,7 +82,7 @@ export default async function planningRoutes(app: FastifyInstance) {
     const uid = req.userId;
     const eid = req.entityId;
     const { start, end, month } = monthRange();
-    const [accounts, investments, history, flow, reserve, goals, byCategory, pending, budgets, bills, billsInfo, unreserved, divisions] = await Promise.all([
+    const [accounts, investments, history, flow, reserve, goals, byCategory, pending, budgets, bills, billsInfo, unreserved, divisions, cardsAll, cardSpend] = await Promise.all([
       accountsWithBalance(uid, eid, true),
       investmentsWithBalance(uid, eid, true),
       netWorthHistory(uid, eid, 12),
@@ -106,7 +107,23 @@ export default async function planningRoutes(app: FastifyInstance) {
       billsAnalysis(uid, eid, month),
       unreservedByCard(uid, eid),
       divisionsMonth(uid, eid, month),
+      cardsSummary(uid, eid),
+      sql`
+        select
+          coalesce(sum(case when t.kind = 'despesa' then t.amount_cents when t.kind = 'receita' then -t.amount_cents end)
+            filter (where t.occurred_at >= ${start}::date and t.occurred_at < ${end}::date), 0) as cur,
+          coalesce(sum(case when t.kind = 'despesa' then t.amount_cents when t.kind = 'receita' then -t.amount_cents end)
+            filter (where t.occurred_at >= (${start}::date - interval '1 month') and t.occurred_at < ${start}::date), 0) as prev
+        from transactions t join accounts a on a.id = t.account_id
+        where t.user_id = ${uid} and t.entity_id = ${eid} and a.type = 'cartao' and t.kind in ('despesa', 'receita')`,
     ]);
+    const cardOwed = cardsAll.reduce((s, c) => s + Math.max(0, c.owedCents), 0);
+    const cardDue = cardsAll.reduce((s, c) => {
+      const inv = c.lastInvoice;
+      return s + (inv && inv.dueDate.slice(0, 7) === month && inv.status !== 'paga' ? inv.remainingCents : 0);
+    }, 0);
+    const cardSpentCur = Number(cardSpend[0].cur);
+    const cardSpentPrev = Number(cardSpend[0].prev);
     const [uncategorized] = await sql`
       select coalesce(sum(amount_cents), 0) as total from transactions
       where user_id = ${uid} and entity_id = ${eid} and kind = 'despesa' and category_id is null
@@ -139,6 +156,17 @@ export default async function planningRoutes(app: FastifyInstance) {
       expensesByCategory: categories,
       budgets,
       pendingCaptures: pending[0].count,
+      cards: {
+        count: cardsAll.length,
+        owedCents: cardOwed,
+        dueThisMonthCents: cardDue,
+        openCents: cardsAll.reduce((s, c) => s + Math.max(0, c.openInvoice.totalCents), 0),
+        spentMonthCents: cardSpentCur,
+        spentPrevMonthCents: cardSpentPrev,
+        shareOfExpenses: current.expenseCents > 0 ? Math.min(1, cardSpentCur / current.expenseCents) : null,
+        shareOfIncome: billsInfo.income.cents > 0 ? cardOwed / billsInfo.income.cents : null,
+        incomeCents: billsInfo.income.cents,
+      },
       divisions: {
         configured: divisions.divisions.some((d: any) => d.active),
         pendingCents: divisions.pendingCents,

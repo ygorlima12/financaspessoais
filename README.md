@@ -152,6 +152,10 @@ Passo a passo em **[docs/android-macrodroid.md](docs/android-macrodroid.md)**. R
   o que cobre notificações e lançamentos manuais), mostra o saldo do banco x saldo do app e lista só as linhas novas, com
   tipo sugerido (saída, entrada, foi para / veio de outra conta, ignorar) e categoria aprendida. Reimportar o mesmo arquivo
   não duplica nada.
+- **Início › 🔔 Pendências:** notificações a revisar, contas atrasadas e próximas, limites estourados, cartão sem dinheiro
+  guardado e divisões pendentes ficam atrás do sino (com contador), em vez de cards espalhados na tela.
+- **Início › Cartão de crédito:** quanto está devendo no cartão, quanto vence este mês, fatia das saídas do mês e da renda
+  (teto de referência: 30% da renda; verde até 20%, laranja até 30%, vermelho acima), variação de compras vs mês anterior.
 - **Cartão › guardar:** ao marcar "guardar" (ou "Guardar tudo") o app pergunta de qual conta o dinheiro sai e para qual
   poupança vai, registra a transferência (desconta da origem) e a classifica na categoria 💳 Cartão de crédito, que
   aparece em Início e em Categorias como "quanto saiu para o cartão" neste mês. A fatura mostra guardado x falta guardar.
